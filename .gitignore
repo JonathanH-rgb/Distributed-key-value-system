@@ -1,1 +1,5 @@
 distributed_systems_plan.txt
+.classpath 
+.project 
+.settings/ 
+target/
