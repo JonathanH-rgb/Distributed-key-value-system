@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+option java_package = "com.kvstore.proto";
+option java_outer_classname = "KVStoreProto";
+
+package kvstore;
+
+message GetRequest{
+  string key = 1;
+}
+
+message GetResponse{
+  string key = 1;
+  bytes value = 2;
+  bool found = 3;
+}
+
+message PutRequest{
+  string key = 1;
+  bytes value = 2;
+}
+
+message PutResponse{
+  bool successful = 1;
+  string errorCode = 2;
+}
+
+message DeleteRequest{
+  string key = 1;
+}
+
+message DeleteResponse{
+  bool successful = 1;
+  string errorCode = 2;
+}
+
+service KVStore {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
