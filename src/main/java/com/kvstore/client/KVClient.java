@@ -29,6 +29,11 @@ public class KVClient {
 
   }
 
+  public KVClient(ManagedChannel managedChannel) {
+    this.managedChannel = managedChannel;
+    stub = KVStoreGrpc.newBlockingStub(managedChannel);
+  }
+
   public Optional<byte[]> get(String key) {
 
     GetRequest getRequest = GetRequest
