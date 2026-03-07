@@ -27,29 +27,29 @@ public class InMemoryStoreTest {
   @Test
   public void testGetOfExistingValue() {
     Optional<byte[]> optionalResult = inMemoryStore.get("test1");
-    assertEquals(true, optionalResult.isPresent());
+    assertTrue(optionalResult.isPresent());
     assertArrayEquals("test1".getBytes(), optionalResult.get());
   }
 
   @Test
   public void testGetOfNonExistingValue() {
     Optional<byte[]> result = inMemoryStore.get("thisDoesNotExist");
-    assertEquals(true, result.isEmpty());
+    assertTrue(result.isEmpty());
   }
 
   @Test
   public void testPutANewValue() {
     inMemoryStore.put("test3", "test3".getBytes());
     Optional<byte[]> optionalResult = inMemoryStore.get("test3");
-    assertEquals(true, optionalResult.isPresent());
+    assertTrue(optionalResult.isPresent());
     assertArrayEquals("test3".getBytes(), optionalResult.get());
   }
 
   @Test
-  public void testDeletAValue() {
+  public void testDeleteValue() {
     inMemoryStore.delete("test1");
     Optional<byte[]> result = inMemoryStore.get("test1");
-    assertEquals(true, result.isEmpty());
+    assertTrue(result.isEmpty());
 
   }
 
