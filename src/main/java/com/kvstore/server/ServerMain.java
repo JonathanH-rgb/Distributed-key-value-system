@@ -8,7 +8,7 @@ public class ServerMain {
 
   public static void main(String[] args) {
     KVServer kvServer = new KVServer();
-    kvServer.start(8080);
+    kvServer.start(8088);
   }
 
 }
