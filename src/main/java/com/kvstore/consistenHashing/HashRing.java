@@ -16,8 +16,6 @@ public class HashRing {
 
   private final Set<Node> nodesSet = new HashSet<>();
 
-  private MessageDigest messageDigest;
-
   private class VirtualNode {
 
     private final Node nodeReference;
@@ -42,14 +40,15 @@ public class HashRing {
       throw new IllegalArgumentException("Please assign at least 5 virtual nodes");
     }
     this.virtualNodes = virtualNodes;
-    try {
-      this.messageDigest = MessageDigest.getInstance("MD5");
-    } catch (final NoSuchAlgorithmException ex) {
-      throw new RuntimeException(ex);
-    }
   }
 
   private long computeHashForRing(final String arg) {
+    MessageDigest messageDigest;
+    try {
+      messageDigest = MessageDigest.getInstance("MD5");
+    } catch (final NoSuchAlgorithmException ex) {
+      throw new RuntimeException(ex);
+    }
     final byte[] digest = messageDigest.digest(arg.getBytes());
     long hash = 0;
     for (int i = 0; i < 8; i++) {
@@ -58,17 +57,15 @@ public class HashRing {
     return hash;
   }
 
-  private String createVirtualNodeIdentifier(final VirtualNode virtualNode) {
-    return virtualNode.getNodeReference().gethost() +
-        ":" +
-        virtualNode.getNodeReference().getport() +
-        "-" + virtualNode.getindex();
+  private String createVirtualNodeIdentifier(final String host, int port, int index) {
+    return host + ":" + port + "-" + index;
   }
 
   private void createVirtualNodes(final Node node) {
     for (int i = 0; i < virtualNodes; i++) {
       final VirtualNode virtualNode = new VirtualNode(node, i);
-      final String virtualNodeIdentifier = createVirtualNodeIdentifier(virtualNode);
+      final String virtualNodeIdentifier = createVirtualNodeIdentifier(virtualNode.getNodeReference().gethost(),
+          virtualNode.getNodeReference().getport(), virtualNode.getindex());
       final long virtualNodeHash = computeHashForRing(virtualNodeIdentifier);
       this.virtualNodeMap.put(virtualNodeHash, virtualNode);
     }
@@ -76,6 +73,7 @@ public class HashRing {
 
   public void addNode(final Node node) throws Exception {
     if (nodesSet.contains(node)) {
+      // TODO: check if it's better to throw a custom exception
       throw new Exception("Node: " + node.toString() + "already in the ring");
     }
     createVirtualNodes(node);
@@ -91,6 +89,21 @@ public class HashRing {
       nodeHash = virtualNodeMap.firstKey();
     }
     return virtualNodeMap.get(nodeHash).getNodeReference();
+  }
+
+  public void removeNode(Node node) throws Exception {
+    if (!nodesSet.contains(node)) {
+      // TODO: check if it's better to throw a custom exception
+      throw new Exception("Node: " + node.toString() + "isn't in the ring");
+    }
+    for (int i = 0; i < virtualNodes; i++) {
+      final String virtualNodeIdentifier = createVirtualNodeIdentifier(node.gethost(),
+          node.getport(), i);
+      final long virtualNodeHash = computeHashForRing(virtualNodeIdentifier);
+      // TODO: check if we should check the computed hash key indeed remove a node?
+      virtualNodeMap.remove(virtualNodeHash);
+    }
+    nodesSet.remove(node);
   }
 
 }
