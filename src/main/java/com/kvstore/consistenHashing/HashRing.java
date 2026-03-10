@@ -7,6 +7,8 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import com.kvstore.common.Node;
+import com.kvstore.common.exceptions.NodeAlreadyInRingException;
+import com.kvstore.common.exceptions.NodeNotInRingException;
 
 public class HashRing {
 
@@ -71,10 +73,9 @@ public class HashRing {
     }
   }
 
-  public void addNode(final Node node) throws Exception {
+  public void addNode(final Node node) throws NodeAlreadyInRingException {
     if (nodesSet.contains(node)) {
-      // TODO: check if it's better to throw a custom exception
-      throw new Exception("Node: " + node.toString() + "already in the ring");
+      throw new NodeAlreadyInRingException("Node: " + node.toString() + "already in the ring");
     }
     createVirtualNodes(node);
     nodesSet.add(node);
@@ -91,16 +92,14 @@ public class HashRing {
     return virtualNodeMap.get(nodeHash).getNodeReference();
   }
 
-  public void removeNode(Node node) throws Exception {
+  public void removeNode(Node node) throws NodeNotInRingException {
     if (!nodesSet.contains(node)) {
-      // TODO: check if it's better to throw a custom exception
-      throw new Exception("Node: " + node.toString() + "isn't in the ring");
+      throw new NodeNotInRingException("Node: " + node.toString() + "isn't in the ring");
     }
     for (int i = 0; i < virtualNodes; i++) {
       final String virtualNodeIdentifier = createVirtualNodeIdentifier(node.gethost(),
           node.getport(), i);
       final long virtualNodeHash = computeHashForRing(virtualNodeIdentifier);
-      // TODO: check if we should check the computed hash key indeed remove a node?
       virtualNodeMap.remove(virtualNodeHash);
     }
     nodesSet.remove(node);
