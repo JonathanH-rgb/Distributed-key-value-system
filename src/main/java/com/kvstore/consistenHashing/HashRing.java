@@ -3,7 +3,6 @@ package com.kvstore.consistenHashing;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -13,7 +12,7 @@ public class HashRing {
 
   private final int virtualNodes;
 
-  private final Map<Long, VirtualNode> virtualNodeMap = new TreeMap<>();
+  private final TreeMap<Long, VirtualNode> virtualNodeMap = new TreeMap<>();
 
   private final Set<Node> nodesSet = new HashSet<>();
 
@@ -81,7 +80,17 @@ public class HashRing {
     }
     createVirtualNodes(node);
     nodesSet.add(node);
+  }
 
+  public Node getNode(String key) {
+    long keyHash = computeHashForRing(key);
+    long nodeHash;
+    if (virtualNodeMap.ceilingEntry(keyHash) != null) {
+      nodeHash = virtualNodeMap.ceilingKey(keyHash);
+    } else {
+      nodeHash = virtualNodeMap.firstKey();
+    }
+    return virtualNodeMap.get(nodeHash).getNodeReference();
   }
 
 }
