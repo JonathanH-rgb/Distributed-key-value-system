@@ -11,7 +11,7 @@ import com.kvstore.common.exceptions.EmptyRingException;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 
-public class HashRing {
+public class HashRing implements HashRingInterface {
 
   private final int virtualNodes;
 
