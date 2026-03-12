@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import com.kvstore.common.Node;
+import com.kvstore.common.exceptions.EmptyRingException;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 
@@ -14,9 +15,15 @@ public class HashRing {
 
   private final int virtualNodes;
 
+  public int getVirtualNodes() {
+    return virtualNodes;
+  }
+
   private final TreeMap<Long, VirtualNode> virtualNodeMap = new TreeMap<>();
 
   private final Set<Node> nodesSet = new HashSet<>();
+
+  public static final int MIN_NUMBER_OF_VIRTUAL_NODES = 5;
 
   private class VirtualNode {
 
@@ -38,8 +45,8 @@ public class HashRing {
   }
 
   public HashRing(final int virtualNodes) {
-    if (virtualNodes <= 5) {
-      throw new IllegalArgumentException("Please assign at least 5 virtual nodes");
+    if (virtualNodes < MIN_NUMBER_OF_VIRTUAL_NODES) {
+      throw new IllegalArgumentException("Please assign at least " + MIN_NUMBER_OF_VIRTUAL_NODES + " virtual nodes");
     }
     this.virtualNodes = virtualNodes;
   }
@@ -81,9 +88,12 @@ public class HashRing {
     nodesSet.add(node);
   }
 
-  public Node getNode(String key) {
+  public Node determineNodeForKey(String key) throws EmptyRingException {
     long keyHash = computeHashForRing(key);
     long nodeHash;
+    if (nodesSet.size() == 0) {
+      throw new EmptyRingException("No node has been added to the ring");
+    }
     if (virtualNodeMap.ceilingEntry(keyHash) != null) {
       nodeHash = virtualNodeMap.ceilingKey(keyHash);
     } else {
@@ -103,6 +113,12 @@ public class HashRing {
       virtualNodeMap.remove(virtualNodeHash);
     }
     nodesSet.remove(node);
+  }
+
+  public Set<Node> getCopyOfNodesInRing() {
+    // TODO: make this method return a copy so client can't change the nodes?
+    // for now it returns the set
+    return nodesSet;
   }
 
 }
