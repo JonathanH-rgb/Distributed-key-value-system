@@ -9,6 +9,11 @@ import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.consistenHashing.HashRingInterface;
 
+/**
+ * Multi-node client for the distributed KV store.
+ * Uses a HashRing to determine which node owns a given key and routes
+ * each operation to the correct node via a pool of KVClient instances.
+ */
 public class ClusterClient {
 
   private final HashRingInterface hashRing;

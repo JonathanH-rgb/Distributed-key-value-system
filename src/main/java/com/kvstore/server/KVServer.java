@@ -18,6 +18,10 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 
+/**
+ * gRPC service implementation for the KV store.
+ * Handles Get, Put, and Delete RPCs from clients and delegates to a StorageEngine.
+ */
 public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
   private Server server;

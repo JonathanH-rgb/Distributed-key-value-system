@@ -13,6 +13,10 @@ import com.kvstore.proto.KVStoreGrpc;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 
+/**
+ * gRPC client for a single KV store node.
+ * Abstracts away protobuf serialization so callers work with plain Java types.
+ */
 public class KVClient {
 
   private ManagedChannel managedChannel;

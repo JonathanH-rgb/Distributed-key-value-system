@@ -11,6 +11,11 @@ import com.kvstore.common.exceptions.EmptyRingException;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 
+/**
+ * Consistent hash ring for distributing keys across cluster nodes.
+ * Each physical node is assigned multiple positions on the ring (virtual nodes)
+ * to ensure even key distribution. Given a key, returns the nearest node clockwise.
+ */
 public class HashRing implements HashRingInterface {
 
   private final int virtualNodes;

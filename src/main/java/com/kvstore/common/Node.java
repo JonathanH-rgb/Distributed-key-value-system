@@ -2,6 +2,10 @@ package com.kvstore.common;
 
 import java.util.Objects;
 
+/**
+ * Represents a cluster node identified by its host and port.
+ * Equality is based on host and port so it can be used safely in maps and sets.
+ */
 public class Node {
 
   private String host;
