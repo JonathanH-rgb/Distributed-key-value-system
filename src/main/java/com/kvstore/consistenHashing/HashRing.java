@@ -66,7 +66,7 @@ public class HashRing implements HashRingInterface {
     return hash;
   }
 
-  private String createVirtualNodeIdentifier(final String host, int port, int index) {
+  private String createVirtualNodeIdentifier(final String host, final int port, final int index) {
     return host + ":" + port + "-" + index;
   }
 
@@ -88,8 +88,8 @@ public class HashRing implements HashRingInterface {
     nodesSet.add(node);
   }
 
-  public Node determineNodeForKey(String key) throws EmptyRingException {
-    long keyHash = computeHashForRing(key);
+  public Node determineNodeForKey(final String key) throws EmptyRingException {
+    final long keyHash = computeHashForRing(key);
     long nodeHash;
     if (nodesSet.size() == 0) {
       throw new EmptyRingException("No node has been added to the ring");
@@ -102,7 +102,7 @@ public class HashRing implements HashRingInterface {
     return virtualNodeMap.get(nodeHash).getNodeReference();
   }
 
-  public void removeNode(Node node) throws NodeNotInRingException {
+  public void removeNode(final Node node) throws NodeNotInRingException {
     if (!nodesSet.contains(node)) {
       throw new NodeNotInRingException("Node: " + node.toString() + "isn't in the ring");
     }
