@@ -16,15 +16,20 @@ public class ClusterClient {
 
   public ClusterClient(final HashRingInterface hashRing) {
     this.hashRing = hashRing;
+    this.clientPool = new ConcurrentHashMap<>();
     populateClientPool();
   }
 
+  private void createClientAndPutInPool(Node node) {
+    final KVClient client = new KVClient(node.gethost(), node.getport());
+    clientPool.put(node, client);
+  }
+
   private void populateClientPool() {
-    // TODO: Error handling here? Could be that the client wasn't able to connect
     hashRing.getCopyOfNodesInRing()
         .stream()
-        .forEach(n -> {
-          final KVClient client = new KVClient(n.gethost(), n.getport());
+        .forEach(node -> {
+          createClientAndPutInPool(node);
         });
   }
 
@@ -52,10 +57,14 @@ public class ClusterClient {
 
   public void addNode(final Node node) throws NodeAlreadyInRingException {
     hashRing.addNode(node);
+    createClientAndPutInPool(node);
   }
 
   public void removeNode(final Node node) throws NodeNotInRingException {
     hashRing.removeNode(node);
+    KVClient client = clientPool.get(node);
+    client.shutdown();
+    clientPool.remove(node);
   }
 
 }
