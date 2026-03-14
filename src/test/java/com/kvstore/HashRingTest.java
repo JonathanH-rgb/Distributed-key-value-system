@@ -2,6 +2,9 @@ package com.kvstore;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
+
+import java.util.HashMap;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,6 +72,42 @@ public class HashRingTest {
     String key = "key";
     Node providedNode = hashRing.determineNodeForKey(key);
     assertEquals(node, providedNode);
+  }
+
+  @Test
+  public void checkDistributionOfKeys() throws NodeAlreadyInRingException, EmptyRingException {
+
+    int numberOfVirtualNodes = 150;
+    this.hashRing = new HashRing(numberOfVirtualNodes);
+    int numberOfNodes = 4;
+    int numberOfKeys = 10_000;
+
+    int expectedKeysPerNode = numberOfKeys / numberOfNodes;
+    int lowerExpectedKeysPerNode = (int) (expectedKeysPerNode * 0.5);
+    int upperExpectedKeysPerNode = (int) (expectedKeysPerNode * 1.5);
+
+    HashMap<Node, Integer> keysPerNode = new HashMap<>();
+    Node[] nodes = new Node[numberOfNodes];
+
+    for (int i = 0; i < numberOfNodes; i++) {
+      String host = "host" + i;
+      int port = 8088 + i;
+      nodes[i] = new Node(host, port);
+      keysPerNode.put(nodes[i], 0);
+      hashRing.addNode(nodes[i]);
+    }
+
+    for (int i = 0; i < numberOfKeys; i++) {
+      String key = "key" + i;
+      Node node = hashRing.determineNodeForKey(key);
+      keysPerNode.put(node, keysPerNode.get(node) + 1);
+    }
+
+    for (Node node : keysPerNode.keySet()) {
+      int keysInThisNode = keysPerNode.get(node);
+      assertTrue(keysInThisNode >= lowerExpectedKeysPerNode
+          && keysInThisNode <= upperExpectedKeysPerNode);
+    }
   }
 
 }
