@@ -1,6 +1,7 @@
 package com.kvstore;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import com.kvstore.client.ClusterClient;
 import com.kvstore.client.KVClient;
 import com.kvstore.common.Node;
+import com.kvstore.common.exceptions.EmptyRingException;
 import com.kvstore.consistenHashing.HashRing;
 import com.kvstore.server.KVServer;
 
@@ -70,8 +72,29 @@ public class ClusterClientTest {
   }
 
   @Test
-  public void check() {
-    assertTrue(true);
+  public void putAndGetTest() throws EmptyRingException {
+    String key = "key1";
+    byte[] value = "value".getBytes();
+    clusterClient.putValue(key, value);
+    assertArrayEquals(value, clusterClient.getValue(key).get());
   }
 
+  @Test
+  public void deleteTest() throws EmptyRingException {
+    String key = "key1";
+    clusterClient.putValue(key, "value".getBytes());
+    clusterClient.deleteValue(key);
+    assertTrue(clusterClient.getValue(key).isEmpty());
+  }
+
+  @Test
+  public void deleteDoesNotAffectOtherKeysTest() throws EmptyRingException {
+    String key1 = "key1";
+    String key2 = "key2";
+    byte[] value2 = "value2".getBytes();
+    clusterClient.putValue(key1, "value1".getBytes());
+    clusterClient.putValue(key2, value2);
+    clusterClient.deleteValue(key1);
+    assertArrayEquals(value2, clusterClient.getValue(key2).get());
+  }
 }
