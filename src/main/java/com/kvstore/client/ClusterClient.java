@@ -25,6 +25,11 @@ public class ClusterClient {
     populateClientPool();
   }
 
+  public ClusterClient(final HashRingInterface hashRing, ConcurrentHashMap<Node, KVClient> clientPool) {
+    this.hashRing = hashRing;
+    this.clientPool = clientPool;
+  }
+
   private void createClientAndPutInPool(Node node) {
     final KVClient client = new KVClient(node.gethost(), node.getport());
     clientPool.put(node, client);
