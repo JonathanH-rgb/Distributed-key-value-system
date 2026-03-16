@@ -5,6 +5,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.kvstore.common.Node;
 import com.kvstore.common.exceptions.EmptyRingException;
@@ -14,7 +16,8 @@ import com.kvstore.common.exceptions.NodeNotInRingException;
 /**
  * Consistent hash ring for distributing keys across cluster nodes.
  * Each physical node is assigned multiple positions on the ring (virtual nodes)
- * to ensure even key distribution. Given a key, returns the nearest node clockwise.
+ * to ensure even key distribution. Given a key, returns the nearest node
+ * clockwise.
  */
 public class HashRing implements HashRingInterface {
 
@@ -29,6 +32,8 @@ public class HashRing implements HashRingInterface {
   private final Set<Node> nodesSet = new HashSet<>();
 
   public static final int MIN_NUMBER_OF_VIRTUAL_NODES = 5;
+
+  private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
   private class VirtualNode {
 
@@ -86,44 +91,65 @@ public class HashRing implements HashRingInterface {
   }
 
   public void addNode(final Node node) throws NodeAlreadyInRingException {
-    if (nodesSet.contains(node)) {
-      throw new NodeAlreadyInRingException("Node: " + node.toString() + "already in the ring");
+    lock.writeLock().lock();
+    try {
+      if (nodesSet.contains(node)) {
+        throw new NodeAlreadyInRingException("Node: " + node.toString() + "already in the ring");
+      }
+      createVirtualNodes(node);
+      nodesSet.add(node);
+    } finally {
+      lock.writeLock().unlock();
     }
-    createVirtualNodes(node);
-    nodesSet.add(node);
   }
 
   public Node determineNodeForKey(final String key) throws EmptyRingException {
-    final long keyHash = computeHashForRing(key);
-    long nodeHash;
-    if (nodesSet.size() == 0) {
-      throw new EmptyRingException("No node has been added to the ring");
+    lock.readLock().lock();
+    try {
+
+      final long keyHash = computeHashForRing(key);
+      long nodeHash;
+      if (nodesSet.size() == 0) {
+        throw new EmptyRingException("No node has been added to the ring");
+      }
+      if (virtualNodeMap.ceilingEntry(keyHash) != null) {
+        nodeHash = virtualNodeMap.ceilingKey(keyHash);
+      } else {
+        nodeHash = virtualNodeMap.firstKey();
+      }
+      return virtualNodeMap.get(nodeHash).getNodeReference();
+    } finally {
+      lock.readLock().unlock();
     }
-    if (virtualNodeMap.ceilingEntry(keyHash) != null) {
-      nodeHash = virtualNodeMap.ceilingKey(keyHash);
-    } else {
-      nodeHash = virtualNodeMap.firstKey();
-    }
-    return virtualNodeMap.get(nodeHash).getNodeReference();
   }
 
   public void removeNode(final Node node) throws NodeNotInRingException {
-    if (!nodesSet.contains(node)) {
-      throw new NodeNotInRingException("Node: " + node.toString() + "isn't in the ring");
+    lock.writeLock().lock();
+    try {
+      if (!nodesSet.contains(node)) {
+        throw new NodeNotInRingException("Node: " + node.toString() + "isn't in the ring");
+      }
+      for (int i = 0; i < virtualNodes; i++) {
+        final String virtualNodeIdentifier = createVirtualNodeIdentifier(node.gethost(),
+            node.getport(), i);
+        final long virtualNodeHash = computeHashForRing(virtualNodeIdentifier);
+        virtualNodeMap.remove(virtualNodeHash);
+      }
+      nodesSet.remove(node);
+    } finally {
+      lock.writeLock().unlock();
     }
-    for (int i = 0; i < virtualNodes; i++) {
-      final String virtualNodeIdentifier = createVirtualNodeIdentifier(node.gethost(),
-          node.getport(), i);
-      final long virtualNodeHash = computeHashForRing(virtualNodeIdentifier);
-      virtualNodeMap.remove(virtualNodeHash);
-    }
-    nodesSet.remove(node);
   }
 
   public Set<Node> getCopyOfNodesInRing() {
     // TODO: make this method return a copy so client can't change the nodes?
     // for now it returns the set
-    return nodesSet;
+    lock.readLock().lock();
+    try {
+      return nodesSet;
+    } finally {
+      lock.readLock().unlock();
+    }
   }
 
 }
