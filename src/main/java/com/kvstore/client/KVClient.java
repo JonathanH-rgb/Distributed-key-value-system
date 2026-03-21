@@ -8,6 +8,7 @@ import com.kvstore.proto.KVStoreProto.DeleteRequest;
 import com.kvstore.proto.KVStoreProto.GetRequest;
 import com.kvstore.proto.KVStoreProto.GetResponse;
 import com.kvstore.proto.KVStoreProto.PutRequest;
+import com.kvstore.common.VersionedValue;
 import com.kvstore.proto.KVStoreGrpc;
 
 import io.grpc.ManagedChannel;
@@ -38,7 +39,7 @@ public class KVClient {
     stub = KVStoreGrpc.newBlockingStub(managedChannel);
   }
 
-  public Optional<byte[]> get(String key) {
+  public Optional<VersionedValue> get(String key) {
 
     GetRequest getRequest = GetRequest
         .newBuilder()
@@ -48,19 +49,21 @@ public class KVClient {
     GetResponse getResponse = stub.get(getRequest);
 
     if (getResponse.getFound()) {
-      return Optional.of(getResponse.getValue().toByteArray());
+      VersionedValue value = new VersionedValue(getResponse.getValue().toByteArray(), getResponse.getVersion());
+      return Optional.of(value);
     } else {
       return Optional.empty();
     }
 
   }
 
-  public void put(String key, byte[] value) {
+  public void put(String key, byte[] value, long version) {
 
     PutRequest putRequest = PutRequest
         .newBuilder()
         .setKey(key)
         .setValue(ByteString.copyFrom(value))
+        .setVersion(version)
         .build();
 
     stub.put(putRequest);
