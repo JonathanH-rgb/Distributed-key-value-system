@@ -2,6 +2,7 @@ package com.kvstore.consistenHashing;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeMap;
@@ -12,6 +13,7 @@ import com.kvstore.common.Node;
 import com.kvstore.common.exceptions.EmptyRingException;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
+import com.kvstore.common.exceptions.NotEnoughNodesException;
 
 /**
  * Consistent hash ring for distributing keys across cluster nodes.
@@ -103,21 +105,48 @@ public class HashRing implements HashRingInterface {
     }
   }
 
-  public Node determineNodeForKey(final String key) throws EmptyRingException {
+  public HashSet<Node> determineNodesForKey(final String key, int partitionFactor)
+      throws NotEnoughNodesException {
     lock.readLock().lock();
+
     try {
 
-      final long keyHash = computeHashForRing(key);
-      long nodeHash;
-      if (nodesSet.size() == 0) {
-        throw new EmptyRingException("No node has been added to the ring");
+      if (nodesSet.size() < partitionFactor) {
+        throw new NotEnoughNodesException(
+            "The ring has " + nodesSet.size() + " nodes but " + partitionFactor + " where requested");
       }
-      if (virtualNodeMap.ceilingEntry(keyHash) != null) {
-        nodeHash = virtualNodeMap.ceilingKey(keyHash);
-      } else {
-        nodeHash = virtualNodeMap.firstKey();
+
+      HashSet<Node> nodes = new HashSet<>();
+      long currentNodeHash = -1;
+      long keyHash = -1;
+      int i = 0;
+
+      while (nodes.size() < partitionFactor) {
+        if (i == 0) {
+          keyHash = computeHashForRing(key);
+        } else {
+          keyHash = currentNodeHash + 1;
+        }
+
+        if (virtualNodeMap.ceilingEntry(keyHash) != null) {
+          currentNodeHash = virtualNodeMap.ceilingKey(keyHash);
+        } else {
+          currentNodeHash = virtualNodeMap.firstKey();
+        }
+
+        Node node = virtualNodeMap.get(currentNodeHash).getNodeReference();
+        if (nodes.contains(node)) {
+          continue;
+        } else {
+          nodes.add(node);
+          i++;
+
+        }
+
       }
-      return virtualNodeMap.get(nodeHash).getNodeReference();
+
+      return nodes;
+
     } finally {
       lock.readLock().unlock();
     }
