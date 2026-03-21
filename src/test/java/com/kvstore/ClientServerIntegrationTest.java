@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Optional;
 
+import com.kvstore.common.VersionedValue;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,16 +56,16 @@ public class ClientServerIntegrationTest {
   public void testPutAndGet() {
     String key = "test";
     byte[] value = "value".getBytes();
-    client.put(key, value);
-    Optional<byte[]> gottenValue = client.get(key);
+    client.put(key, value, 1L);
+    Optional<VersionedValue> gottenValue = client.get(key);
     assertTrue(gottenValue.isPresent());
-    assertArrayEquals(value, gottenValue.get());
+    assertArrayEquals(value, gottenValue.get().getBytes());
   }
 
   @Test
   public void testGetNonExistingKey() {
     String key = "thisDoesNotExist";
-    Optional<byte[]> gottenValue = client.get(key);
+    Optional<VersionedValue> gottenValue = client.get(key);
     assertFalse(gottenValue.isPresent());
   }
 
@@ -71,9 +73,9 @@ public class ClientServerIntegrationTest {
   public void testDelete() {
     String key = "test";
     byte[] value = "value".getBytes();
-    client.put(key, value);
+    client.put(key, value, 1L);
     client.delete(key);
-    Optional<byte[]> gottenValue = client.get(key);
+    Optional<VersionedValue> gottenValue = client.get(key);
     assertFalse(gottenValue.isPresent());
   }
 

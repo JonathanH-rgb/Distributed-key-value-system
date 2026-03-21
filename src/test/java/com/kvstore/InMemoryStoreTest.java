@@ -7,50 +7,46 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.kvstore.common.VersionedValue;
 import com.kvstore.storage.InMemoryStore;
 
 public class InMemoryStoreTest {
 
   private InMemoryStore inMemoryStore;
 
-  public InMemoryStoreTest() {
-    inMemoryStore = new InMemoryStore();
-  }
-
   @BeforeEach
   public void setup() {
     inMemoryStore = new InMemoryStore();
-    inMemoryStore.put("test1", "test1".getBytes());
-    inMemoryStore.put("test2", "test2".getBytes());
+    inMemoryStore.put("test1", "test1".getBytes(), 1L);
+    inMemoryStore.put("test2", "test2".getBytes(), 1L);
   }
 
   @Test
   public void testGetOfExistingValue() {
-    Optional<byte[]> optionalResult = inMemoryStore.get("test1");
+    Optional<VersionedValue> optionalResult = inMemoryStore.get("test1");
     assertTrue(optionalResult.isPresent());
-    assertArrayEquals("test1".getBytes(), optionalResult.get());
+    assertArrayEquals("test1".getBytes(), optionalResult.get().getBytes());
   }
 
   @Test
   public void testGetOfNonExistingValue() {
-    Optional<byte[]> result = inMemoryStore.get("thisDoesNotExist");
+    Optional<VersionedValue> result = inMemoryStore.get("thisDoesNotExist");
     assertTrue(result.isEmpty());
   }
 
   @Test
   public void testPutANewValue() {
-    inMemoryStore.put("test3", "test3".getBytes());
-    Optional<byte[]> optionalResult = inMemoryStore.get("test3");
+    inMemoryStore.put("test3", "test3".getBytes(), 1L);
+    Optional<VersionedValue> optionalResult = inMemoryStore.get("test3");
     assertTrue(optionalResult.isPresent());
-    assertArrayEquals("test3".getBytes(), optionalResult.get());
+    assertArrayEquals("test3".getBytes(), optionalResult.get().getBytes());
   }
 
   @Test
   public void testDeleteValue() {
     inMemoryStore.delete("test1");
-    Optional<byte[]> result = inMemoryStore.get("test1");
+    Optional<VersionedValue> result = inMemoryStore.get("test1");
     assertTrue(result.isEmpty());
-
   }
 
 }

@@ -76,7 +76,7 @@ public class ClusterClientTest {
     String key = "key1";
     byte[] value = "value".getBytes();
     clusterClient.putValue(key, value);
-    assertArrayEquals(value, clusterClient.getValue(key).get());
+    assertArrayEquals(value, clusterClient.getValue(key).get().getBytes());
   }
 
   @Test
@@ -95,6 +95,6 @@ public class ClusterClientTest {
     clusterClient.putValue(key1, "value1".getBytes());
     clusterClient.putValue(key2, value2);
     clusterClient.deleteValue(key1);
-    assertArrayEquals(value2, clusterClient.getValue(key2).get());
+    assertArrayEquals(value2, clusterClient.getValue(key2).get().getBytes());
   }
 }
