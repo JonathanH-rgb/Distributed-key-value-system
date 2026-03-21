@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.Optional;
 
 import com.google.protobuf.ByteString;
+import com.kvstore.common.VersionedValue;
 import com.kvstore.proto.KVStoreGrpc;
 import com.kvstore.proto.KVStoreProto.DeleteRequest;
 import com.kvstore.proto.KVStoreProto.DeleteResponse;
@@ -20,7 +21,8 @@ import io.grpc.stub.StreamObserver;
 
 /**
  * gRPC service implementation for the KV store.
- * Handles Get, Put, and Delete RPCs from clients and delegates to a StorageEngine.
+ * Handles Get, Put, and Delete RPCs from clients and delegates to a
+ * StorageEngine.
  */
 public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
@@ -50,13 +52,14 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public void get(GetRequest request, StreamObserver<GetResponse> responseObserver) {
     GetResponse getResponse;
     try {
-      Optional<byte[]> optionalValue = storageEngine.get(request.getKey());
+      Optional<VersionedValue> optionalValue = storageEngine.get(request.getKey());
       if (optionalValue.isPresent()) {
         getResponse = GetResponse
             .newBuilder()
             .setKey(request.getKey())
-            .setValue(ByteString.copyFrom(optionalValue.get()))
+            .setValue(ByteString.copyFrom(optionalValue.get().getBytes()))
             .setFound(true)
+            .setVersion(optionalValue.get().getVersion())
             .build();
       } else {
         getResponse = GetResponse
@@ -75,7 +78,8 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   @Override
   public void put(PutRequest request, StreamObserver<PutResponse> responseObserver) {
     try {
-      storageEngine.put(request.getKey(), request.getValue().toByteArray());
+      storageEngine.put(request.getKey(), request.getValue().toByteArray(),
+          request.getVersion());
       PutResponse putResponse = PutResponse.newBuilder()
           .setSuccessful(true)
           .build();
