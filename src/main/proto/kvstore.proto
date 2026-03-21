@@ -13,11 +13,13 @@ message GetResponse{
   string key = 1;
   bytes value = 2;
   bool found = 3;
+  int64 version = 4;
 }
 
 message PutRequest{
   string key = 1;
   bytes value = 2;
+  int64 version = 3;
 }
 
 message PutResponse{
