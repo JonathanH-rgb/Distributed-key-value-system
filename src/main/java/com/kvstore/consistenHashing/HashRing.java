@@ -2,7 +2,6 @@ package com.kvstore.consistenHashing;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeMap;
@@ -10,7 +9,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.kvstore.common.Node;
-import com.kvstore.common.exceptions.EmptyRingException;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;

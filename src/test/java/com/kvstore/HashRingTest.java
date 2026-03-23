@@ -42,6 +42,15 @@ public class HashRingTest {
   }
 
   @Test
+  public void getNodeWithNotEnoughNodesExceptionTest() throws NodeAlreadyInRingException {
+    final String key = "key";
+    final int PARTITION_FACTOR = 2;
+    final Node node = new Node(host, port);
+    hashRing.addNode(node);
+    assertThrows(NotEnoughNodesException.class, () -> hashRing.determineNodesForKey(key, PARTITION_FACTOR));
+  }
+
+  @Test
   public void removeNodeThatIsNotInTheRingExceptionTest() {
     final Node node = new Node(host, port);
     assertThrows(NodeNotInRingException.class, () -> hashRing.removeNode(node));
