@@ -18,6 +18,7 @@ import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
+import com.kvstore.common.exceptions.WriteConsensusException;
 import com.kvstore.consistenHashing.HashRingInterface;
 
 /**
@@ -33,6 +34,9 @@ public class ClusterClient {
   private final int PARTITION_FACTOR = 3;
   private final int READ_CONSENSUS_NUMBER = 2;
   private final int WRITE_CONSENSUS_NUMBER = 2;
+  private final int TIMEOUT_LIMIT_SECS_GET = 5;
+  private final int TIMEOUT_LIMIT_SECS_DELETE = 5;
+  private final int TIMEOUT_LIMIT_SECS_PUT = 5;
 
   public ClusterClient(final HashRingInterface hashRing) {
     this.hashRing = hashRing;
@@ -77,7 +81,8 @@ public class ClusterClient {
 
       for (Future<Optional<VersionedValue>> future : futures) {
         try {
-          results.add(future.get(5, TimeUnit.SECONDS));
+
+          results.add(future.get(TIMEOUT_LIMIT_SECS_GET, TimeUnit.SECONDS));
 
         } catch (InterruptedException ex) {
 
@@ -128,12 +133,39 @@ public class ClusterClient {
   // client.put(key, value, version);
   // }
   //
-  // public void deleteValue(final String key) throws EmptyRingException {
-  // // Here I have to write to all and wait for w to confirm
-  // // final Node node = hashRing.determineNodeForKey(key);
-  // final KVClient client = clientPool.get(node);
-  // client.delete(key);
-  // }
+
+  public void deleteValue(final String key) throws NotEnoughNodesException, WriteConsensusException {
+    // Here I have to write to all and wait for w to confirm
+    // final Node node = hashRing.determineNodeForKey(key);
+
+    final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
+        PARTITION_FACTOR);
+
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+
+      List<Future<?>> futures = nodes.stream()
+          .map(node -> executor.submit(() -> clientPool.get(node).delete(key)))
+          .collect(Collectors.toList());
+
+      int successCount = 0;
+      for (Future<?> future : futures) {
+        try {
+          future.get(TIMEOUT_LIMIT_SECS_DELETE, TimeUnit.SECONDS);
+          successCount++;
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          break;
+        } catch (TimeoutException | ExecutionException ex) {
+        }
+      }
+
+      if (successCount < WRITE_CONSENSUS_NUMBER) {
+        throw new WriteConsensusException("Only " + successCount + " nodes deleted the value, but "
+            + WRITE_CONSENSUS_NUMBER + " were expected to delete that value");
+      }
+
+    }
+  }
 
   public void addNode(final Node node) throws NodeAlreadyInRingException {
     hashRing.addNode(node);
