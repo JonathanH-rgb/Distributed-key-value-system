@@ -1,8 +1,11 @@
 package com.kvstore;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.junit.jupiter.api.AfterEach;
@@ -12,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import com.kvstore.client.ClusterClient;
 import com.kvstore.client.KVClient;
 import com.kvstore.common.Node;
+import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
 import com.kvstore.common.exceptions.WriteConsensusException;
 import com.kvstore.consistenHashing.HashRing;
@@ -29,6 +33,7 @@ public class ClusterClientTest {
   private Server[] servers = new Server[4];
   private KVClient[] clients = new KVClient[4];
   private ClusterClient clusterClient;
+  private Node[] nodes = new Node[NUMBER_OF_SERVERS];
 
   public ClusterClientTest() {
   }
@@ -57,6 +62,7 @@ public class ClusterClientTest {
 
       clients[i] = new KVClient(managedChannel);
       Node node = new Node(nodeName, portNumber);
+      nodes[i] = node;
       clientPool.put(node, clients[i]);
       hashRing.addNode(node);
     }
@@ -101,4 +107,53 @@ public class ClusterClientTest {
     clusterClient.deleteValue(key1);
     assertArrayEquals(value2, clusterClient.getValue(key2).get().getBytes());
   }
+
+  @Test
+  public void getWithNoNodesShouldReturnEmpty() throws NodeNotInRingException {
+    for (int i = 0; i < NUMBER_OF_SERVERS; i++) {
+      clusterClient.removeNode(nodes[i]);
+    }
+    String key1 = "key1";
+    assertEquals(Optional.empty(), clusterClient.getValue(key1));
+  }
+
+  @Test
+  public void getWithNotEnoughNodesShouldReturnEmpty() throws NodeNotInRingException {
+
+    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.READ_CONSENSUS_NUMBER; i--) {
+      clusterClient.removeNode(nodes[i - 1]);
+    }
+
+    String key1 = "key1";
+    assertEquals(Optional.empty(), clusterClient.getValue(key1));
+  }
+
+  @Test
+  public void putWithNotEnoughNodesShouldThrowException() throws NodeNotInRingException {
+
+    String key = "key1";
+    long version = 1L;
+    byte[] value = "hello".getBytes();
+
+    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.WRITE_CONSENSUS_NUMBER; i--) {
+      servers[i - 1].shutdown();
+    }
+
+    assertThrows(WriteConsensusException.class,
+        () -> clusterClient.putValue(key, value, version));
+  }
+
+  @Test
+  public void deleteWithNotEnoughNodesShouldThrowException() throws NodeNotInRingException {
+
+    String key = "key1";
+
+    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.WRITE_CONSENSUS_NUMBER; i--) {
+      servers[i - 1].shutdown();
+    }
+
+    assertThrows(WriteConsensusException.class,
+        () -> clusterClient.deleteValue(key));
+  }
+
 }
