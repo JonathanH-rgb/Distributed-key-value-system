@@ -12,7 +12,8 @@ import org.junit.jupiter.api.Test;
 import com.kvstore.client.ClusterClient;
 import com.kvstore.client.KVClient;
 import com.kvstore.common.Node;
-import com.kvstore.common.exceptions.EmptyRingException;
+import com.kvstore.common.exceptions.NotEnoughNodesException;
+import com.kvstore.common.exceptions.WriteConsensusException;
 import com.kvstore.consistenHashing.HashRing;
 import com.kvstore.server.KVServer;
 
@@ -72,28 +73,31 @@ public class ClusterClientTest {
   }
 
   @Test
-  public void putAndGetTest() throws EmptyRingException {
+  public void putAndGetTest() throws NotEnoughNodesException, WriteConsensusException {
     String key = "key1";
     byte[] value = "value".getBytes();
-    clusterClient.putValue(key, value);
+    long version = 1L;
+    clusterClient.putValue(key, value, version);
     assertArrayEquals(value, clusterClient.getValue(key).get().getBytes());
   }
 
   @Test
-  public void deleteTest() throws EmptyRingException {
+  public void deleteTest() throws NotEnoughNodesException, WriteConsensusException {
     String key = "key1";
-    clusterClient.putValue(key, "value".getBytes());
+    long version = 1L;
+    clusterClient.putValue(key, "value".getBytes(), version);
     clusterClient.deleteValue(key);
     assertTrue(clusterClient.getValue(key).isEmpty());
   }
 
   @Test
-  public void deleteDoesNotAffectOtherKeysTest() throws EmptyRingException {
+  public void deleteDoesNotAffectOtherKeysTest() throws NotEnoughNodesException, WriteConsensusException {
     String key1 = "key1";
     String key2 = "key2";
     byte[] value2 = "value2".getBytes();
-    clusterClient.putValue(key1, "value1".getBytes());
-    clusterClient.putValue(key2, value2);
+    long version = 1L;
+    clusterClient.putValue(key1, "value1".getBytes(), version);
+    clusterClient.putValue(key2, value2, version);
     clusterClient.deleteValue(key1);
     assertArrayEquals(value2, clusterClient.getValue(key2).get().getBytes());
   }
