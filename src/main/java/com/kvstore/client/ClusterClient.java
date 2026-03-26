@@ -31,12 +31,12 @@ public class ClusterClient {
   private final HashRingInterface hashRing;
   private ConcurrentHashMap<Node, KVClient> clientPool;
   // TODO: for now hardcoded, maybe change in the future
-  private final int PARTITION_FACTOR = 3;
-  private final int READ_CONSENSUS_NUMBER = 2;
-  private final int WRITE_CONSENSUS_NUMBER = 2;
-  private final int TIMEOUT_LIMIT_SECS_GET = 5;
-  private final int TIMEOUT_LIMIT_SECS_DELETE = 5;
-  private final int TIMEOUT_LIMIT_SECS_PUT = 5;
+  public final int PARTITION_FACTOR = 3;
+  public final int READ_CONSENSUS_NUMBER = 2;
+  public final int WRITE_CONSENSUS_NUMBER = 2;
+  public final int TIMEOUT_LIMIT_SECS_GET = 5;
+  public final int TIMEOUT_LIMIT_SECS_DELETE = 5;
+  public final int TIMEOUT_LIMIT_SECS_PUT = 5;
 
   public ClusterClient(final HashRingInterface hashRing) {
     this.hashRing = hashRing;
