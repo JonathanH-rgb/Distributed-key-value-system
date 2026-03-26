@@ -125,18 +125,40 @@ public class ClusterClient {
 
   }
 
-  // public void putValue(final String key, final byte[] value, long version)
-  // throws EmptyRingException {
-  // // Here I have to write to all and wait for w to confirm
-  // // final Node node = hashRing.determineNodeForKey(key);
-  // // final KVClient client = clientPool.get(node);
-  // client.put(key, value, version);
-  // }
-  //
+  public void putValue(final String key, final byte[] value, long version)
+      throws NotEnoughNodesException, WriteConsensusException {
+
+    final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
+        PARTITION_FACTOR);
+
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+
+      List<Future<?>> futures = nodes.stream()
+          .map(node -> executor.submit(() -> clientPool.get(node).put(key, value, version)))
+          .collect(Collectors.toList());
+
+      int successCount = 0;
+      for (Future<?> future : futures) {
+        try {
+          future.get(TIMEOUT_LIMIT_SECS_PUT, TimeUnit.SECONDS);
+          successCount++;
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          break;
+        } catch (TimeoutException | ExecutionException ex) {
+        }
+      }
+
+      if (successCount < WRITE_CONSENSUS_NUMBER) {
+        throw new WriteConsensusException("Only " + successCount + " nodes updated the value, but "
+            + WRITE_CONSENSUS_NUMBER + " were expected to updated that value");
+      }
+
+    }
+
+  }
 
   public void deleteValue(final String key) throws NotEnoughNodesException, WriteConsensusException {
-    // Here I have to write to all and wait for w to confirm
-    // final Node node = hashRing.determineNodeForKey(key);
 
     final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
         PARTITION_FACTOR);
@@ -161,7 +183,7 @@ public class ClusterClient {
 
       if (successCount < WRITE_CONSENSUS_NUMBER) {
         throw new WriteConsensusException("Only " + successCount + " nodes deleted the value, but "
-            + WRITE_CONSENSUS_NUMBER + " were expected to delete that value");
+            + WRITE_CONSENSUS_NUMBER + " were expected to deleted that value");
       }
 
     }
