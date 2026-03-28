@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import com.kvstore.client.ClusterClient;
 import com.kvstore.client.KVClient;
 import com.kvstore.common.Node;
+import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
 import com.kvstore.common.exceptions.WriteConsensusException;
@@ -72,8 +74,14 @@ public class ClusterClientTest {
 
   @AfterEach
   public void teardown() {
+    int TIMEOUT_LIMIT_SECS_AWAIT = 5;
     for (int i = 0; i < NUMBER_OF_SERVERS; i++) {
-      servers[i].shutdown();
+      try {
+        servers[i].shutdown();
+        servers[i].awaitTermination(TIMEOUT_LIMIT_SECS_AWAIT, TimeUnit.SECONDS);
+      } catch (InterruptedException ex) {
+        // Here if test are interrupted we should do nothing
+      }
       clients[i].shutdown();
     }
   }
@@ -154,6 +162,37 @@ public class ClusterClientTest {
 
     assertThrows(WriteConsensusException.class,
         () -> clusterClient.deleteValue(key));
+  }
+
+  @Test
+  public void getWithDifferentVersionReturnLatestTest() throws NodeNotInRingException {
+
+    String key = "key";
+    byte[] value1 = "value1".getBytes();
+    long version1 = 1L;
+    byte[] value2 = "value2".getBytes();
+    long version2 = 2L;
+
+    // Only keep necessary number of nodes to read so we avoid missing the node
+    for (int i = NUMBER_OF_SERVERS; i > clusterClient.PARTITION_FACTOR; i--) {
+      clusterClient.removeNode(nodes[i - 1]);
+    }
+
+    // In all nodes we put version 1 of value
+    for (int i = 0; i < clusterClient.PARTITION_FACTOR; i++) {
+      clients[i].put(key, value1, version1);
+    }
+
+    // In just one node we put the newest value, remember we have
+    // PARTITION_FACTOR
+    // nodes so we are sure this node will be picked up while reading
+    clients[0].put(key, value2, version2);
+
+    Optional<VersionedValue> versionedValue = clusterClient.getValue(key);
+    assertTrue(versionedValue.isPresent());
+    assertEquals(versionedValue.get().getVersion(), version2);
+    assertArrayEquals(versionedValue.get().getBytes(), value2);
+
   }
 
 }
