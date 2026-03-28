@@ -41,14 +41,6 @@ InMemoryStore           ← ConcurrentHashMap-backed storage
 - `Node` — represents a cluster node with host and port
 - Custom exceptions: `EmptyRingException`, `NodeAlreadyInRingException`, `NodeNotInRingException`
 
-## How Consistent Hashing Works
-
-Traditional `hash(key) % N` partitioning breaks when nodes are added or removed — nearly all keys need to be remapped.
-
-Consistent hashing places both nodes and keys on a hash ring (0 to 2^63). A key is owned by the nearest node clockwise from it. When a node is added or removed, only the keys between that node and its predecessor on the ring are affected — the theoretical minimum.
-
-**Virtual nodes** solve uneven distribution: each physical node gets multiple positions on the ring (default: configurable via `HashRing` constructor), so the arc lengths — and therefore key ownership — are distributed evenly.
-
 ## Communication Protocol
 
 Nodes communicate using [gRPC](https://grpc.io/) over HTTP/2 with [Protocol Buffers](https://protobuf.dev/) for serialization. The schema is defined in `src/main/proto/kvstore.proto`.
@@ -88,9 +80,3 @@ mvn test
 | 4 | Failure detection & recovery | Planned |
 | 5 | Raft consensus for metadata | Planned |
 | 6 | Polish & persistence | Planned |
-
-## Known Limitations
-
-- Data migration when adding/removing nodes is not yet implemented
-- `HashRing` internals (`TreeMap`, `HashSet`) are not thread-safe — to be addressed before Phase 3
-- No persistence — all data is lost on node restart
