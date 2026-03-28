@@ -9,8 +9,8 @@ Also I will document technical decisions made during development.
 
 I always wanted to know about high performance systems with concurrent operations
 and distributed nodes working towards one operation. So that is why I decided to
-make this, in theory is a simple application. You provide a key and the system
-returns a value, behind the scene it uses different technologies like RPC,
+make this. In theory is a simple application, you provide a key, and the system
+returns a value. Behind the scene it uses different technologies like RPC,
 protobuf and distributed nodes.
 
 ---
@@ -71,7 +71,14 @@ This classes are the backbone that connects my application with gRPC, both imple
 
 ### HashRing
 
-To explain this class first I think a good approach would be to state the problem it solves. We have multiple nodes that have (key, value) pairs, of course each node can't have the whole dataset because at some scale it won't fit in a single computer, we have to scale horizontally. Ok so we will split the data, now we have to determine an algorithm that given a key returns a set of Nodes where that data should be.
+To explain this class first I think a good approach would be to state the problem it solves. We have multiple nodes that have (key, value) pairs, at some point the dataset will be to big to fit in just one computer, we have to scale horizontally. So we will split the data, now we have to determine an algorithm that given a key returns a set of Nodes where that data should be.
 
-We have multiple options, like transform the key to a unique integer and then apply the modulo over the number of nodes, or check all nodes to see which have the key. At the end those solutions have their own problems like doing a multiple node scan is not reliable, maybe the value was in a node that is down but we don't know because it's down, or the modulo is deterministic and tells us precisely where to find the key, but when we want to delete one node now we have to recompute all modulo operations over all the key set to migrate values from the soon to be deleted node. 
+We have multiple options, like transform the key to a unique integer and then apply the modulo over the number of nodes, this gives a result that is also evenly distributed on nodes(that is a big plus) but a problem is that if we add/remove a node we will have to migrate a lot of keys. Of course for a system that is suppose to have millions of records this is not a good approach. 
+
+Another approach would be to add values to each node in order, we keep in a variable the last node where we store a value and insert to the next one, this has two big problems, now when the user gives us the key we have to do do in the worst case a check on every node to see which has the value. Also if a node is down and it's the case that it had the value, we have no way to distinguish if the value was on that node or is not in the system.
+
+We can see from the solutions suggested above that a good algorithm would be able to identify the nodes or nodes that are suppose to have the data just with the key, and also make the migrations as cheap as possible. This is a known problem and the data structure used to solve this problem is called a HashRing.
+
+The HashRing is a structure that will save the server indentifiers hashed, remember that this hashed server identifier is just an integer. Then when given a key, first we have to determine which N nodes should manage that key. The HashRing will hash the key, and find in the hashed server the next PARTITION_FACTOR. For example if I have hashed server indentifiers [100,230,2323,5000] and the hash for 'key' is 200 with and I am storing data in two servers(because I want to avoid single point failures) then this HashRing will return me [230, 2323]. Now that I have the hashed server identifiers I just have to get the server directions and now I can perform my operations. 
+
 
