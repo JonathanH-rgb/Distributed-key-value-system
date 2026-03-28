@@ -133,12 +133,12 @@ public class HashRing implements HashRingInterface {
         }
 
         Node node = virtualNodeMap.get(currentNodeHash).getNodeReference();
+        // Remember we have virtual nodes, so we have to check for duplicates
         if (nodes.contains(node)) {
           continue;
         } else {
           nodes.add(node);
           i++;
-
         }
 
       }
