@@ -1,9 +1,12 @@
 package com.kvstore.server;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Optional;
 
 import com.google.protobuf.ByteString;
+import com.kvstore.common.Node;
+import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.proto.KVStoreGrpc;
 import com.kvstore.proto.KVStoreProto.DeleteRequest;
@@ -27,11 +30,13 @@ import io.grpc.stub.StreamObserver;
 public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
   private Server server;
+  private HashMap<Node, NodeInformation> nodeMap;
 
   private StorageEngine storageEngine;
 
   public KVServer() {
     this.storageEngine = new InMemoryStore();
+    nodeMap = new HashMap<>();
   }
 
   public void start(int portNumber) {
