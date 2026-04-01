@@ -1,8 +1,8 @@
 package com.kvstore.server;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.protobuf.ByteString;
 import com.kvstore.common.Node;
@@ -13,6 +13,8 @@ import com.kvstore.proto.KVStoreProto.DeleteRequest;
 import com.kvstore.proto.KVStoreProto.DeleteResponse;
 import com.kvstore.proto.KVStoreProto.GetRequest;
 import com.kvstore.proto.KVStoreProto.GetResponse;
+import com.kvstore.proto.KVStoreProto.PingRequest;
+import com.kvstore.proto.KVStoreProto.PingResponse;
 import com.kvstore.proto.KVStoreProto.PutRequest;
 import com.kvstore.proto.KVStoreProto.PutResponse;
 import com.kvstore.storage.InMemoryStore;
@@ -30,13 +32,13 @@ import io.grpc.stub.StreamObserver;
 public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
   private Server server;
-  private HashMap<Node, NodeInformation> nodeMap;
-
+  private ConcurrentHashMap<Node, NodeInformation> nodeMap;
+  private final int FANOUT_FACTOR = 3;
   private StorageEngine storageEngine;
 
   public KVServer() {
     this.storageEngine = new InMemoryStore();
-    nodeMap = new HashMap<>();
+    nodeMap = new ConcurrentHashMap<>();
   }
 
   public void start(int portNumber) {
@@ -107,6 +109,16 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     } catch (Exception ex) {
       responseObserver.onError(ex);
     }
-
   }
+
+  @Override
+  public void ping(PingRequest request, StreamObserver<PingResponse> responseObserver) {
+    try {
+      responseObserver.onNext(PingResponse.newBuilder().build());
+      responseObserver.onCompleted();
+    } catch (Exception ex) {
+      responseObserver.onError(ex);
+    }
+  }
+
 }
