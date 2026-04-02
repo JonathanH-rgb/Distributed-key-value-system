@@ -76,10 +76,12 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     nodeToNodeInformationMap.put(serverNode, thisServerInfo);
 
     for (int i = 0; i < hardcodedNodes.length; i++) {
-      // Created as suspect because the logic when ping should update the status
-      // from suspect to alive after the ping
-      NodeInformation newNodeInformation = new NodeInformation(NodeInformation.Status.SUSPECT, 0);
-      nodeToNodeInformationMap.put(hardcodedNodes[i], newNodeInformation);
+      Node hardcodedNode = hardcodedNodes[i];
+      if (hardcodedNode.gethost().equals(serverNode.gethost()) && hardcodedNode.getport() == serverNode.getport()) {
+        continue;
+      }
+      NodeInformation newNodeInformation = new NodeInformation(NodeInformation.Status.ALIVE, 0);
+      nodeToNodeInformationMap.put(hardcodedNode, newNodeInformation);
     }
   }
 
