@@ -8,6 +8,7 @@ import com.google.protobuf.ByteString;
 import com.kvstore.common.Node;
 import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
+import com.kvstore.common.exceptions.EmptyHardcodedNodesListException;
 import com.kvstore.proto.KVStoreGrpc;
 import com.kvstore.proto.KVStoreProto.DeleteRequest;
 import com.kvstore.proto.KVStoreProto.DeleteResponse;
@@ -32,13 +33,27 @@ import io.grpc.stub.StreamObserver;
 public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
   private Server server;
-  private ConcurrentHashMap<Node, NodeInformation> nodeMap;
-  private final int FANOUT_FACTOR = 3;
+  private ConcurrentHashMap<Node, NodeInformation> nodeToNodeInformationMap;
   private StorageEngine storageEngine;
+  private final int FANOUT_FACTOR = 3;
+  private final Node serverNode;
 
-  public KVServer() {
+  public KVServer() throws EmptyHardcodedNodesListException {
     this.storageEngine = new InMemoryStore();
-    nodeMap = new ConcurrentHashMap<>();
+    nodeToNodeInformationMap = new ConcurrentHashMap<>();
+    this.serverNode = null;
+  }
+
+  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes) throws EmptyHardcodedNodesListException {
+
+    if (hardcodeNodes.length == 0) {
+      throw new EmptyHardcodedNodesListException("Provided hardcoded nodes list can not be empty");
+    }
+    this.serverNode = new Node(serverHost, serverPort);
+    this.storageEngine = new InMemoryStore();
+    nodeToNodeInformationMap = new ConcurrentHashMap<>();
+    populateHardcodedNodes(hardcodeNodes);
+
   }
 
   public void start(int portNumber) {
@@ -52,6 +67,19 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       throw new RuntimeException("Failed to start server on port " + portNumber, ioEx);
     } catch (InterruptedException iEx) {
       throw new RuntimeException("Server interrupted", iEx);
+    }
+  }
+
+  private void populateHardcodedNodes(Node[] hardcodedNodes) {
+
+    NodeInformation thisServerInfo = new NodeInformation(NodeInformation.Status.ALIVE, 1);
+    nodeToNodeInformationMap.put(serverNode, thisServerInfo);
+
+    for (int i = 0; i < hardcodedNodes.length; i++) {
+      // Created as suspect because the logic when ping should update the status
+      // from suspect to alive after the ping
+      NodeInformation newNodeInformation = new NodeInformation(NodeInformation.Status.SUSPECT, 0);
+      nodeToNodeInformationMap.put(hardcodedNodes[i], newNodeInformation);
     }
   }
 
@@ -120,5 +148,4 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onError(ex);
     }
   }
-
 }
