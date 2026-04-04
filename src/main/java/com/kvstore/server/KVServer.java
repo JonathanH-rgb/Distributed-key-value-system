@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -53,6 +54,9 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public final static int FANOUT_FACTOR = 3;
   private final Node serverNode;
   public final static int GOSSIP_TIMEOUT_SECS = 5;
+  public final static int THREADS_RUNNING_GOSSIP_LOOP = 1;
+  public final static int GOSSIP_LOOP_DELAY = 0;
+  public final static int GOSSIP_OTHER_SERVERS_FREQ = 1;
 
   public KVServer() throws EmptyHardcodedNodesListException {
     this.storageEngine = new InMemoryStore();
@@ -78,6 +82,9 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         .build();
     try {
       server.start();
+      ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_GOSSIP_LOOP);
+      scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, GOSSIP_LOOP_DELAY, GOSSIP_OTHER_SERVERS_FREQ,
+          TimeUnit.SECONDS);
       server.awaitTermination();
     } catch (IOException ioEx) {
       throw new RuntimeException("Failed to start server on port " + portNumber, ioEx);
@@ -167,8 +174,45 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     }
   }
 
-  // public void gossip(GossipRequest request, StreamObserver<GossipResponse>
-  // responseObserver) {
+  @Override
+  public void gossip(GossipRequest request, StreamObserver<GossipResponse> responseObserver) {
+    try {
+      // Merge request info into this node
+      request.getNodesList().forEach(protoNode -> {
+        Node node = new Node(protoNode.getNode().getHost(), protoNode.getNode().getPort());
+        NodeInformation incoming = new NodeInformation(
+            NodeInformation.Status.valueOf(protoNode.getStatus().name()),
+            protoNode.getHeartBeatCounter());
+        nodeToNodeInformationMap.merge(node, incoming,
+            (existing, newVal) -> newVal.getHeartBeatCounter() > existing.getHeartBeatCounter() ? newVal : existing);
+      });
+
+      // Format this node info to send to requesting node
+      List<com.kvstore.proto.KVStoreProto.NodeInformation> responseNodes = nodeToNodeInformationMap
+          .entrySet().stream()
+          .map(entry -> com.kvstore.proto.KVStoreProto.NodeInformation.newBuilder()
+              .setNode(com.kvstore.proto.KVStoreProto.Node.newBuilder()
+                  .setHost(entry.getKey().gethost())
+                  .setPort(entry.getKey().getport())
+                  .build())
+
+              .setStatus(com.kvstore.proto.KVStoreProto.NodeStatus.valueOf(entry.getValue().getStatus().name()))
+              .setHeartBeatCounter(entry.getValue().getHeartBeatCounter())
+              .build())
+          .collect(Collectors.toList());
+
+      GossipResponse gossipResponse = GossipResponse.newBuilder()
+          .addAllNodes(responseNodes)
+          .build();
+
+      // Send info
+      responseObserver.onNext(gossipResponse);
+      responseObserver.onCompleted();
+    } catch (Exception ex) {
+      responseObserver.onError(ex);
+    }
+  }
+
   public void gossipOtherRandomServers() {
 
     // Increase my counter before sending messages
