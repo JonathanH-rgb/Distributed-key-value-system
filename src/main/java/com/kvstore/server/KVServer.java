@@ -171,13 +171,16 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   // responseObserver) {
   public void gossipOtherRandomServers() {
 
+    // Increase my counter before sending messages
     nodeToNodeInformationMap.get(serverNode).setHeartBeatCounter(
         nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1);
 
+    // select random nodes safely
     List<Node> nodes = new ArrayList<>(nodeToNodeInformationMap.keySet());
     Collections.shuffle(nodes);
     List<Node> selectedNodes = nodes.subList(0, Math.min(FANOUT_FACTOR, nodes.size()));
 
+    // Make sure nodes have gossip client, if not create
     selectedNodes.stream().forEach(n -> {
       if (!nodeToGossipClientMap.containsKey(n)) {
         GossipClient gossipClient = new GossipClient(n.gethost(), n.getport());
@@ -187,6 +190,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
     List<HashMap<Node, NodeInformation>> gossipMessages = new ArrayList<>();
 
+    // Async request to other nodes
     try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
       List<Future<HashMap<Node, NodeInformation>>> futures = selectedNodes
           .stream()
@@ -196,6 +200,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
             return client.gossip(normalMap);
           })).collect(Collectors.toList());
 
+      // Unpack into list
       for (Future<HashMap<Node, NodeInformation>> future : futures) {
         try {
           gossipMessages.add(future.get(GOSSIP_TIMEOUT_SECS, TimeUnit.SECONDS));
@@ -207,6 +212,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       }
     }
 
+    // Iterate over responses, update node information in this server with gossips
     for (HashMap<Node, NodeInformation> message : gossipMessages) {
       for (Node currentNode : message.keySet()) {
         NodeInformation currentNodeInfo = message.get(currentNode);
