@@ -1,10 +1,22 @@
 package com.kvstore.server;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 import com.google.protobuf.ByteString;
+import com.kvstore.client.GossipClient;
 import com.kvstore.common.Node;
 import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
@@ -14,6 +26,8 @@ import com.kvstore.proto.KVStoreProto.DeleteRequest;
 import com.kvstore.proto.KVStoreProto.DeleteResponse;
 import com.kvstore.proto.KVStoreProto.GetRequest;
 import com.kvstore.proto.KVStoreProto.GetResponse;
+import com.kvstore.proto.KVStoreProto.GossipRequest;
+import com.kvstore.proto.KVStoreProto.GossipResponse;
 import com.kvstore.proto.KVStoreProto.PingRequest;
 import com.kvstore.proto.KVStoreProto.PingResponse;
 import com.kvstore.proto.KVStoreProto.PutRequest;
@@ -34,9 +48,11 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
   private Server server;
   private ConcurrentHashMap<Node, NodeInformation> nodeToNodeInformationMap;
+  private ConcurrentHashMap<Node, GossipClient> nodeToGossipClientMap;
   private StorageEngine storageEngine;
-  private final int FANOUT_FACTOR = 3;
+  public final static int FANOUT_FACTOR = 3;
   private final Node serverNode;
+  public final static int GOSSIP_TIMEOUT_SECS = 5;
 
   public KVServer() throws EmptyHardcodedNodesListException {
     this.storageEngine = new InMemoryStore();
@@ -53,7 +69,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     this.storageEngine = new InMemoryStore();
     nodeToNodeInformationMap = new ConcurrentHashMap<>();
     populateHardcodedNodes(hardcodeNodes);
-
+    this.nodeToGossipClientMap = new ConcurrentHashMap<>();
   }
 
   public void start(int portNumber) {
@@ -150,4 +166,62 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onError(ex);
     }
   }
+
+  // public void gossip(GossipRequest request, StreamObserver<GossipResponse>
+  // responseObserver) {
+  public void gossipOtherRandomServers() {
+
+    nodeToNodeInformationMap.get(serverNode).setHeartBeatCounter(
+        nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1);
+
+    List<Node> nodes = new ArrayList<>(nodeToNodeInformationMap.keySet());
+    Collections.shuffle(nodes);
+    List<Node> selectedNodes = nodes.subList(0, Math.min(FANOUT_FACTOR, nodes.size()));
+
+    selectedNodes.stream().forEach(n -> {
+      if (!nodeToGossipClientMap.containsKey(n)) {
+        GossipClient gossipClient = new GossipClient(n.gethost(), n.getport());
+        nodeToGossipClientMap.put(n, gossipClient);
+      }
+    });
+
+    List<HashMap<Node, NodeInformation>> gossipMessages = new ArrayList<>();
+
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      List<Future<HashMap<Node, NodeInformation>>> futures = selectedNodes
+          .stream()
+          .map(n -> executor.submit(() -> {
+            GossipClient client = nodeToGossipClientMap.get(n);
+            HashMap<Node, NodeInformation> normalMap = new HashMap<>(nodeToNodeInformationMap);
+            return client.gossip(normalMap);
+          })).collect(Collectors.toList());
+
+      for (Future<HashMap<Node, NodeInformation>> future : futures) {
+        try {
+          gossipMessages.add(future.get(GOSSIP_TIMEOUT_SECS, TimeUnit.SECONDS));
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          break;
+        } catch (TimeoutException | ExecutionException ex) {
+        }
+      }
+    }
+
+    for (HashMap<Node, NodeInformation> message : gossipMessages) {
+      for (Node currentNode : message.keySet()) {
+        NodeInformation currentNodeInfo = message.get(currentNode);
+        if (!nodeToNodeInformationMap.containsKey(currentNode)) {
+          nodeToNodeInformationMap.put(currentNode, currentNodeInfo);
+        } else {
+          long heartBeatRegisteredInThisServer = nodeToNodeInformationMap.get(currentNode).getHeartBeatCounter();
+          long heartBeatInThisGossip = message.get(currentNode).getHeartBeatCounter();
+          if (heartBeatInThisGossip > heartBeatRegisteredInThisServer) {
+            nodeToNodeInformationMap.put(currentNode, currentNodeInfo);
+          }
+        }
+      }
+    }
+
+  }
+
 }
