@@ -50,6 +50,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   private Server server;
   private ConcurrentHashMap<Node, NodeInformation> nodeToNodeInformationMap;
   private ConcurrentHashMap<Node, GossipClient> nodeToGossipClientMap;
+  private ConcurrentHashMap<Node, Integer> nodeToFailedGossipAttemps;
   private StorageEngine storageEngine;
   public final static int FANOUT_FACTOR = 3;
   private final Node serverNode;
@@ -57,10 +58,13 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public final static int THREADS_RUNNING_GOSSIP_LOOP = 1;
   public final static int GOSSIP_LOOP_DELAY = 0;
   public final static int GOSSIP_OTHER_SERVERS_FREQ = 1;
+  public final static int MAX_GOSSIP_ATTEMPS = 3;
 
   public KVServer() throws EmptyHardcodedNodesListException {
     this.storageEngine = new InMemoryStore();
     nodeToNodeInformationMap = new ConcurrentHashMap<>();
+    nodeToFailedGossipAttemps = new ConcurrentHashMap<>();
+    nodeToGossipClientMap = new ConcurrentHashMap<>();
     this.serverNode = null;
   }
 
@@ -69,11 +73,14 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     if (hardcodeNodes.length == 0) {
       throw new EmptyHardcodedNodesListException("Provided hardcoded nodes list can not be empty");
     }
+
+    nodeToNodeInformationMap = new ConcurrentHashMap<>();
+    nodeToFailedGossipAttemps = new ConcurrentHashMap<>();
+    nodeToGossipClientMap = new ConcurrentHashMap<>();
+
     this.serverNode = new Node(serverHost, serverPort);
     this.storageEngine = new InMemoryStore();
-    nodeToNodeInformationMap = new ConcurrentHashMap<>();
     populateHardcodedNodes(hardcodeNodes);
-    this.nodeToGossipClientMap = new ConcurrentHashMap<>();
   }
 
   public void start(int portNumber) {
@@ -220,9 +227,11 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1);
 
     // select random nodes safely
-    List<Node> nodes = new ArrayList<>(nodeToNodeInformationMap.keySet());
-    Collections.shuffle(nodes);
-    List<Node> selectedNodes = nodes.subList(0, Math.min(FANOUT_FACTOR, nodes.size()));
+    List<Node> aliveNodes = new ArrayList<>(nodeToNodeInformationMap.keySet())
+        .stream().filter(n -> nodeToNodeInformationMap.get(n).getStatus() != NodeInformation.Status.DEAD)
+        .collect(Collectors.toList());
+    Collections.shuffle(aliveNodes);
+    List<Node> selectedNodes = aliveNodes.subList(0, Math.min(FANOUT_FACTOR, aliveNodes.size()));
 
     // Make sure nodes have gossip client, if not create
     selectedNodes.stream().forEach(n -> {
@@ -235,6 +244,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     List<HashMap<Node, NodeInformation>> gossipMessages = new ArrayList<>();
 
     // Async request to other nodes
+    HashMap<Future<HashMap<Node, NodeInformation>>, Node> futureToNodeMap = new HashMap<>();
     try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
       List<Future<HashMap<Node, NodeInformation>>> futures = selectedNodes
           .stream()
@@ -242,16 +252,34 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
             GossipClient client = nodeToGossipClientMap.get(n);
             HashMap<Node, NodeInformation> normalMap = new HashMap<>(nodeToNodeInformationMap);
             return client.gossip(normalMap);
-          })).collect(Collectors.toList());
+          }))
+          .collect(Collectors.toList());
+
+      // Is same order? I think yes but might be a problem in future
+      for (int i = 0; i < futures.size(); i++) {
+        futureToNodeMap.put(futures.get(i), selectedNodes.get(i));
+      }
 
       // Unpack into list
       for (Future<HashMap<Node, NodeInformation>> future : futures) {
+        Node node = futureToNodeMap.get(future);
         try {
           gossipMessages.add(future.get(GOSSIP_TIMEOUT_SECS, TimeUnit.SECONDS));
+          nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.ALIVE);
+          if (nodeToFailedGossipAttemps.containsKey(node)) {
+            nodeToFailedGossipAttemps.put(node, 0);
+          }
         } catch (InterruptedException ex) {
           Thread.currentThread().interrupt();
           break;
         } catch (TimeoutException | ExecutionException ex) {
+          nodeToFailedGossipAttemps.put(node,
+              nodeToFailedGossipAttemps.getOrDefault(node, 0) + 1);
+          if (nodeToFailedGossipAttemps.get(node) >= MAX_GOSSIP_ATTEMPS) {
+            nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.DEAD);
+          } else {
+            nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.SUSPECT);
+          }
         }
       }
     }
