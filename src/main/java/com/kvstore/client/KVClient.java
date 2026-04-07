@@ -1,13 +1,18 @@
 package com.kvstore.client;
 
+import java.util.HashMap;
 import java.util.Optional;
 
 import com.google.protobuf.ByteString;
 import com.kvstore.proto.KVStoreGrpc.KVStoreBlockingStub;
+import com.kvstore.proto.KVStoreProto.ClusterViewRequest;
+import com.kvstore.proto.KVStoreProto.ClusterViewResponse;
 import com.kvstore.proto.KVStoreProto.DeleteRequest;
 import com.kvstore.proto.KVStoreProto.GetRequest;
 import com.kvstore.proto.KVStoreProto.GetResponse;
 import com.kvstore.proto.KVStoreProto.PutRequest;
+import com.kvstore.common.Node;
+import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.proto.KVStoreGrpc;
 
@@ -75,6 +80,20 @@ public class KVClient {
         .setKey(key)
         .build();
     stub.delete(deleteRequest);
+  }
+
+  public HashMap<Node, NodeInformation> viewCluster() {
+    HashMap<Node, NodeInformation> nodeInfo = new HashMap<>();
+    ClusterViewRequest viewRequest = ClusterViewRequest.newBuilder().build();
+    ClusterViewResponse response = stub.viewCluster(viewRequest);
+    response.getNodesList().forEach(protoNode -> {
+      Node node = new Node(protoNode.getNode().getHost(), protoNode.getNode().getPort());
+      NodeInformation incoming = new NodeInformation(
+          NodeInformation.Status.valueOf(protoNode.getStatus().name()),
+          protoNode.getHeartBeatCounter());
+      nodeInfo.put(node, incoming);
+    });
+    return nodeInfo;
   }
 
   public void shutdown() {
