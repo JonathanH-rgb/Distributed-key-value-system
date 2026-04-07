@@ -2,18 +2,22 @@ package com.kvstore.client;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import com.kvstore.common.Node;
+import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
@@ -30,6 +34,7 @@ public class ClusterClient {
 
   private final HashRingInterface hashRing;
   private ConcurrentHashMap<Node, KVClient> clientPool;
+  private Map<Node, KVClient> hardcodedNodesToClientMap;
   // TODO: for now hardcoded, maybe change in the future
   public final int PARTITION_FACTOR = 3;
   public final int READ_CONSENSUS_NUMBER = 2;
@@ -37,11 +42,30 @@ public class ClusterClient {
   public final int TIMEOUT_LIMIT_SECS_GET = 5;
   public final int TIMEOUT_LIMIT_SECS_DELETE = 5;
   public final int TIMEOUT_LIMIT_SECS_PUT = 5;
+  public final int REFRESH_RATE_NODE_INFORMATION_SECS = 3;
+  public final int REFRESH_RATE_NODE_INFORMATION_DELAY_SECS = 0;
+  public final int THREADS_RUNNING_REFRESH_LOOP = 1;
+
+  private void initHardcodedNodesAndClients() {
+    // TODO: make this configurable, maybe read from a file
+    hardcodedNodesToClientMap = new HashMap<>();
+    for (int i = 0; i < 1; i++) {
+      String host = "localhost";
+      int port = 9090 + i;
+      Node node = new Node(host, port);
+      KVClient client = new KVClient(host, port);
+      hardcodedNodesToClientMap.put(node, client);
+    }
+  }
 
   public ClusterClient(final HashRingInterface hashRing) {
     this.hashRing = hashRing;
     this.clientPool = new ConcurrentHashMap<>();
-    populateClientPool();
+    initHardcodedNodesAndClients();
+    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_REFRESH_LOOP);
+    scheduler.scheduleAtFixedRate(this::updateNodeInformation, REFRESH_RATE_NODE_INFORMATION_DELAY_SECS,
+        REFRESH_RATE_NODE_INFORMATION_SECS,
+        TimeUnit.SECONDS);
   }
 
   public ClusterClient(final HashRingInterface hashRing, ConcurrentHashMap<Node, KVClient> clientPool) {
@@ -52,14 +76,6 @@ public class ClusterClient {
   private void createClientAndPutInPool(Node node) {
     final KVClient client = new KVClient(node.gethost(), node.getport());
     clientPool.put(node, client);
-  }
-
-  private void populateClientPool() {
-    hashRing.getCopyOfNodesInRing()
-        .stream()
-        .forEach(node -> {
-          createClientAndPutInPool(node);
-        });
   }
 
   public Optional<VersionedValue> getValue(final String key) {
@@ -189,16 +205,55 @@ public class ClusterClient {
     }
   }
 
-  public void addNode(final Node node) throws NodeAlreadyInRingException {
+  private void addNode(final Node node) throws NodeAlreadyInRingException {
     hashRing.addNode(node);
     createClientAndPutInPool(node);
   }
 
-  public void removeNode(final Node node) throws NodeNotInRingException {
+  private void removeNode(final Node node) throws NodeNotInRingException {
     hashRing.removeNode(node);
     KVClient client = clientPool.get(node);
     client.shutdown();
     clientPool.remove(node);
+  }
+
+  private void updateNodeInformation() {
+
+    HashMap<Node, NodeInformation> clusterNodeInfo = new HashMap<>();
+    boolean ableToCallOneHardcodedNodeForStatus = false;
+
+    for (Node hardcodedNodeToTryWith : hardcodedNodesToClientMap.keySet()) {
+      KVClient client = hardcodedNodesToClientMap.get(hardcodedNodeToTryWith);
+      try {
+        clusterNodeInfo = client.viewCluster();
+        ableToCallOneHardcodedNodeForStatus = true;
+        break;
+      } catch (Exception ex) {
+        // Maybe log?
+      }
+    }
+
+    if (!ableToCallOneHardcodedNodeForStatus) {
+      // TODO: log this: "Unable to connect to any hardcoded node"
+      return;
+    }
+
+    for (Node node : clusterNodeInfo.keySet()) {
+      NodeInformation info = clusterNodeInfo.get(node);
+      if (clientPool.containsKey(node) && info.getStatus() == NodeInformation.Status.DEAD) {
+        try {
+          removeNode(node);
+        } catch (NodeNotInRingException ex) {
+          // Should never throw this because we check if client.contains it
+        }
+      } else if (!clientPool.containsKey(node) && info.getStatus() == NodeInformation.Status.ALIVE) {
+        try {
+          addNode(node);
+        } catch (NodeAlreadyInRingException ex) {
+          // Should never throw this because we check if client.contains it
+        }
+      }
+    }
   }
 
 }
