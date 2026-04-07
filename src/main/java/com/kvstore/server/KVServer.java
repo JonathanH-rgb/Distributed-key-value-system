@@ -23,6 +23,8 @@ import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.EmptyHardcodedNodesListException;
 import com.kvstore.proto.KVStoreGrpc;
+import com.kvstore.proto.KVStoreProto.ClusterViewRequest;
+import com.kvstore.proto.KVStoreProto.ClusterViewResponse;
 import com.kvstore.proto.KVStoreProto.DeleteRequest;
 import com.kvstore.proto.KVStoreProto.DeleteResponse;
 import com.kvstore.proto.KVStoreProto.GetRequest;
@@ -181,6 +183,44 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     }
   }
 
+  private List<com.kvstore.proto.KVStoreProto.NodeInformation> createProtoNodeInformationWithNodeInformation(
+      ConcurrentHashMap<Node, NodeInformation> nodeInformationMap) {
+
+    return nodeInformationMap
+        .entrySet().stream()
+        .map(entry -> com.kvstore.proto.KVStoreProto.NodeInformation.newBuilder()
+            .setNode(com.kvstore.proto.KVStoreProto.Node.newBuilder()
+                .setHost(entry.getKey().gethost())
+                .setPort(entry.getKey().getport())
+                .build())
+
+            .setStatus(com.kvstore.proto.KVStoreProto.NodeStatus.valueOf(entry.getValue().getStatus().name()))
+            .setHeartBeatCounter(entry.getValue().getHeartBeatCounter())
+            .build())
+        .collect(Collectors.toList());
+
+  }
+
+  @Override
+  public void viewCluster(ClusterViewRequest request, StreamObserver<ClusterViewResponse> responseObserver) {
+    try {
+
+      // Format this node info to send to requesting node
+      List<com.kvstore.proto.KVStoreProto.NodeInformation> responseNodes = createProtoNodeInformationWithNodeInformation(
+          nodeToNodeInformationMap);
+
+      ClusterViewResponse clusterViewResponse = ClusterViewResponse.newBuilder()
+          .addAllNodes(responseNodes)
+          .build();
+
+      // Send info
+      responseObserver.onNext(clusterViewResponse);
+      responseObserver.onCompleted();
+    } catch (Exception ex) {
+      responseObserver.onError(ex);
+    }
+  }
+
   @Override
   public void gossip(GossipRequest request, StreamObserver<GossipResponse> responseObserver) {
     try {
@@ -195,19 +235,8 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       });
 
       // Format this node info to send to requesting node
-      List<com.kvstore.proto.KVStoreProto.NodeInformation> responseNodes = nodeToNodeInformationMap
-          .entrySet().stream()
-          .map(entry -> com.kvstore.proto.KVStoreProto.NodeInformation.newBuilder()
-              .setNode(com.kvstore.proto.KVStoreProto.Node.newBuilder()
-                  .setHost(entry.getKey().gethost())
-                  .setPort(entry.getKey().getport())
-                  .build())
-
-              .setStatus(com.kvstore.proto.KVStoreProto.NodeStatus.valueOf(entry.getValue().getStatus().name()))
-              .setHeartBeatCounter(entry.getValue().getHeartBeatCounter())
-              .build())
-          .collect(Collectors.toList());
-
+      List<com.kvstore.proto.KVStoreProto.NodeInformation> responseNodes = createProtoNodeInformationWithNodeInformation(
+          nodeToNodeInformationMap);
       GossipResponse gossipResponse = GossipResponse.newBuilder()
           .addAllNodes(responseNodes)
           .build();
