@@ -24,6 +24,8 @@ import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
 import com.kvstore.common.exceptions.WriteConsensusException;
 import com.kvstore.consistenHashing.HashRingInterface;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Multi-node client for the distributed KV store.
@@ -31,6 +33,8 @@ import com.kvstore.consistenHashing.HashRingInterface;
  * each operation to the correct node via a pool of KVClient instances.
  */
 public class ClusterClient {
+
+  private static final Logger logger = LoggerFactory.getLogger(ClusterClient.class);
 
   private final HashRingInterface hashRing;
   private ConcurrentHashMap<Node, KVClient> clientPool;
@@ -80,6 +84,8 @@ public class ClusterClient {
 
   public Optional<VersionedValue> getValue(final String key) {
 
+    logger.debug("GET request for key '{}'", key);
+
     final HashSet<Node> nodes;
     List<Optional<VersionedValue>> results = new ArrayList<>();
 
@@ -106,13 +112,14 @@ public class ClusterClient {
           break;
 
         } catch (TimeoutException | ExecutionException ex) {
-
+          logger.error("GET request for key '{}' failed on one node", key, ex);
         }
       }
 
     }
 
     if (results.size() < READ_CONSENSUS_NUMBER) {
+      logger.warn("GET for key '{}' did not meet read consensus: got {} responses, needed {}", key, results.size(), READ_CONSENSUS_NUMBER);
       return Optional.empty();
     }
 
@@ -144,6 +151,8 @@ public class ClusterClient {
   public void putValue(final String key, final byte[] value, long version)
       throws NotEnoughNodesException, WriteConsensusException {
 
+    logger.debug("PUT request for key '{}' at version {}", key, version);
+
     final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
         PARTITION_FACTOR);
 
@@ -162,10 +171,12 @@ public class ClusterClient {
           Thread.currentThread().interrupt();
           break;
         } catch (TimeoutException | ExecutionException ex) {
+          logger.error("PUT request for key '{}' failed on one node", key, ex);
         }
       }
 
       if (successCount < WRITE_CONSENSUS_NUMBER) {
+        logger.warn("PUT for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount, WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes updated the value, but "
             + WRITE_CONSENSUS_NUMBER + " were expected to updated that value");
       }
@@ -175,6 +186,8 @@ public class ClusterClient {
   }
 
   public void deleteValue(final String key) throws NotEnoughNodesException, WriteConsensusException {
+
+    logger.debug("DELETE request for key '{}'", key);
 
     final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
         PARTITION_FACTOR);
@@ -194,10 +207,12 @@ public class ClusterClient {
           Thread.currentThread().interrupt();
           break;
         } catch (TimeoutException | ExecutionException ex) {
+          logger.error("DELETE request for key '{}' failed on one node", key, ex);
         }
       }
 
       if (successCount < WRITE_CONSENSUS_NUMBER) {
+        logger.warn("DELETE for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount, WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes deleted the value, but "
             + WRITE_CONSENSUS_NUMBER + " were expected to deleted that value");
       }
@@ -208,6 +223,7 @@ public class ClusterClient {
   private void addNode(final Node node) throws NodeAlreadyInRingException {
     hashRing.addNode(node);
     createClientAndPutInPool(node);
+    logger.info("Node {} added to the hash ring", node);
   }
 
   private void removeNode(final Node node) throws NodeNotInRingException {
@@ -215,6 +231,7 @@ public class ClusterClient {
     KVClient client = clientPool.get(node);
     client.shutdown();
     clientPool.remove(node);
+    logger.info("Node {} removed from the hash ring", node);
   }
 
   private void updateNodeInformation() {
@@ -229,14 +246,16 @@ public class ClusterClient {
         ableToCallOneHardcodedNodeForStatus = true;
         break;
       } catch (Exception ex) {
-        // Maybe log?
+        logger.warn("Unable to reach seed node {} for cluster view update", hardcodedNodeToTryWith);
       }
     }
 
     if (!ableToCallOneHardcodedNodeForStatus) {
-      // TODO: log this: "Unable to connect to any hardcoded node"
+      logger.warn("Unable to connect to any seed node; skipping cluster view update");
       return;
     }
+
+    logger.info("Cluster view updated; received {} nodes", clusterNodeInfo.size());
 
     for (Node node : clusterNodeInfo.keySet()) {
       NodeInformation info = clusterNodeInfo.get(node);

@@ -12,6 +12,8 @@ import com.kvstore.common.Node;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Consistent hash ring for distributing keys across cluster nodes.
@@ -20,6 +22,8 @@ import com.kvstore.common.exceptions.NotEnoughNodesException;
  * clockwise.
  */
 public class HashRing implements HashRingInterface {
+
+  private static final Logger logger = LoggerFactory.getLogger(HashRing.class);
 
   private final int virtualNodes;
 
@@ -66,6 +70,7 @@ public class HashRing implements HashRingInterface {
     try {
       messageDigest = MessageDigest.getInstance("MD5");
     } catch (final NoSuchAlgorithmException ex) {
+      logger.error("MD5 algorithm not available", ex);
       throw new RuntimeException(ex);
     }
     final byte[] digest = messageDigest.digest(arg.getBytes());
@@ -98,6 +103,7 @@ public class HashRing implements HashRingInterface {
       }
       createVirtualNodes(node);
       nodesSet.add(node);
+      logger.info("Node {} added to the hash ring ({} virtual nodes)", node, virtualNodes);
     } finally {
       lock.writeLock().unlock();
     }
@@ -163,6 +169,7 @@ public class HashRing implements HashRingInterface {
         virtualNodeMap.remove(virtualNodeHash);
       }
       nodesSet.remove(node);
+      logger.info("Node {} removed from the hash ring", node);
     } finally {
       lock.writeLock().unlock();
     }

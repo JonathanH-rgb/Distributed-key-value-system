@@ -41,6 +41,8 @@ import com.kvstore.storage.StorageEngine;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * gRPC service implementation for the KV store.
@@ -48,6 +50,8 @@ import io.grpc.stub.StreamObserver;
  * StorageEngine.
  */
 public class KVServer extends KVStoreGrpc.KVStoreImplBase {
+
+  private static final Logger logger = LoggerFactory.getLogger(KVServer.class);
 
   private Server server;
   private ConcurrentHashMap<Node, NodeInformation> nodeToNodeInformationMap;
@@ -91,13 +95,17 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         .build();
     try {
       server.start();
+      logger.info("KVServer started on port {}", portNumber);
       ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_GOSSIP_LOOP);
       scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, GOSSIP_LOOP_DELAY, GOSSIP_OTHER_SERVERS_FREQ,
           TimeUnit.SECONDS);
       server.awaitTermination();
+      logger.info("KVServer stopped on port {}", portNumber);
     } catch (IOException ioEx) {
+      logger.error("Failed to start server on port {}", portNumber, ioEx);
       throw new RuntimeException("Failed to start server on port " + portNumber, ioEx);
     } catch (InterruptedException iEx) {
+      logger.error("Server interrupted while awaiting termination on port {}", portNumber, iEx);
       throw new RuntimeException("Server interrupted", iEx);
     }
   }
@@ -119,6 +127,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
   @Override
   public void get(GetRequest request, StreamObserver<GetResponse> responseObserver) {
+    logger.debug("GET request for key '{}'", request.getKey());
     GetResponse getResponse;
     try {
       Optional<VersionedValue> optionalValue = storageEngine.get(request.getKey());
@@ -140,12 +149,14 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onNext(getResponse);
       responseObserver.onCompleted();
     } catch (Exception ex) {
+      logger.error("Error handling GET request for key '{}'", request.getKey(), ex);
       responseObserver.onError(ex);
     }
   }
 
   @Override
   public void put(PutRequest request, StreamObserver<PutResponse> responseObserver) {
+    logger.debug("PUT request for key '{}' at version {}", request.getKey(), request.getVersion());
     try {
       storageEngine.put(request.getKey(), request.getValue().toByteArray(),
           request.getVersion());
@@ -155,12 +166,14 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onNext(putResponse);
       responseObserver.onCompleted();
     } catch (Exception ex) {
+      logger.error("Error handling PUT request for key '{}'", request.getKey(), ex);
       responseObserver.onError(ex);
     }
   }
 
   @Override
   public void delete(DeleteRequest request, StreamObserver<DeleteResponse> responseObserver) {
+    logger.debug("DELETE request for key '{}'", request.getKey());
     try {
       storageEngine.delete(request.getKey());
       DeleteResponse deleteResponse = DeleteResponse.newBuilder()
@@ -169,6 +182,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onNext(deleteResponse);
       responseObserver.onCompleted();
     } catch (Exception ex) {
+      logger.error("Error handling DELETE request for key '{}'", request.getKey(), ex);
       responseObserver.onError(ex);
     }
   }
@@ -179,6 +193,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onNext(PingResponse.newBuilder().build());
       responseObserver.onCompleted();
     } catch (Exception ex) {
+      logger.error("Error handling PING request", ex);
       responseObserver.onError(ex);
     }
   }
@@ -213,16 +228,19 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
           .addAllNodes(responseNodes)
           .build();
 
+      logger.info("Cluster view requested; responding with {} nodes", responseNodes.size());
       // Send info
       responseObserver.onNext(clusterViewResponse);
       responseObserver.onCompleted();
     } catch (Exception ex) {
+      logger.error("Error handling viewCluster request", ex);
       responseObserver.onError(ex);
     }
   }
 
   @Override
   public void gossip(GossipRequest request, StreamObserver<GossipResponse> responseObserver) {
+    logger.debug("Received gossip message with {} node entries", request.getNodesCount());
     try {
       // Merge request info into this node
       request.getNodesList().forEach(protoNode -> {
@@ -245,6 +263,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onNext(gossipResponse);
       responseObserver.onCompleted();
     } catch (Exception ex) {
+      logger.error("Error handling gossip request", ex);
       responseObserver.onError(ex);
     }
   }
@@ -252,8 +271,9 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public void gossipOtherRandomServers() {
 
     // Increase my counter before sending messages
-    nodeToNodeInformationMap.get(serverNode).setHeartBeatCounter(
-        nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1);
+    long newHeartBeat = nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1;
+    nodeToNodeInformationMap.get(serverNode).setHeartBeatCounter(newHeartBeat);
+    logger.debug("Incremented heartbeat counter for {} to {}", serverNode, newHeartBeat);
 
     // select random nodes safely
     List<Node> aliveNodes = new ArrayList<>(nodeToNodeInformationMap.keySet())
@@ -261,6 +281,8 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         .collect(Collectors.toList());
     Collections.shuffle(aliveNodes);
     List<Node> selectedNodes = aliveNodes.subList(0, Math.min(FANOUT_FACTOR, aliveNodes.size()));
+
+    logger.debug("Starting gossip round; selected {} target nodes", selectedNodes.size());
 
     // Make sure nodes have gossip client, if not create
     selectedNodes.stream().forEach(n -> {
@@ -302,10 +324,12 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
           Thread.currentThread().interrupt();
           break;
         } catch (TimeoutException | ExecutionException ex) {
-          nodeToFailedGossipAttemps.put(node,
-              nodeToFailedGossipAttemps.getOrDefault(node, 0) + 1);
+          int failedAttempts = nodeToFailedGossipAttemps.getOrDefault(node, 0) + 1;
+          nodeToFailedGossipAttemps.put(node, failedAttempts);
+          logger.warn("Gossip to node {} failed (attempt {}/{})", node, failedAttempts, MAX_GOSSIP_ATTEMPS);
           if (nodeToFailedGossipAttemps.get(node) >= MAX_GOSSIP_ATTEMPS) {
             nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.DEAD);
+            logger.warn("Node {} marked as DEAD after {} failed gossip attempts", node, failedAttempts);
           } else {
             nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.SUSPECT);
           }
@@ -319,6 +343,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         NodeInformation currentNodeInfo = message.get(currentNode);
         if (!nodeToNodeInformationMap.containsKey(currentNode)) {
           nodeToNodeInformationMap.put(currentNode, currentNodeInfo);
+          logger.info("Discovered new node {} via gossip; added to cluster view", currentNode);
         } else {
           long heartBeatRegisteredInThisServer = nodeToNodeInformationMap.get(currentNode).getHeartBeatCounter();
           long heartBeatInThisGossip = message.get(currentNode).getHeartBeatCounter();

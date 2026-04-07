@@ -14,8 +14,12 @@ import com.kvstore.proto.KVStoreProto.PingRequest;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class GossipClient {
+
+  private static final Logger logger = LoggerFactory.getLogger(GossipClient.class);
 
   private ManagedChannel managedChannel;
   private KVStoreBlockingStub stub;
@@ -46,11 +50,13 @@ public class GossipClient {
       stub.ping(pingRequest);
       return true;
     } catch (Exception ex) {
+      logger.debug("Ping failed", ex);
       return false;
     }
   }
 
   public HashMap<Node, NodeInformation> gossip(HashMap<Node, NodeInformation> nodeInformation) {
+    logger.debug("Sending gossip message with {} node entries", nodeInformation.size());
 
     GossipRequest gossipRequest = GossipRequest.newBuilder()
         .addAllNodes(nodeInformation.entrySet().stream()
