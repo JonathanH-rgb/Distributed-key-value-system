@@ -50,31 +50,28 @@ public class ClusterClient {
   public final int REFRESH_RATE_NODE_INFORMATION_DELAY_SECS = 0;
   public final int THREADS_RUNNING_REFRESH_LOOP = 1;
 
-  private void initHardcodedNodesAndClients() {
+  private void initHardcodedNodesAndClientPool() {
     // TODO: make this configurable, maybe read from a file
-    hardcodedNodesToClientMap = new HashMap<>();
-    for (int i = 0; i < 1; i++) {
-      String host = "localhost";
-      int port = 9090 + i;
-      Node node = new Node(host, port);
-      KVClient client = new KVClient(host, port);
-      hardcodedNodesToClientMap.put(node, client);
-    }
+    // Implement
+    throw new RuntimeException("Implement me");
   }
 
   public ClusterClient(final HashRingInterface hashRing) {
     this.hashRing = hashRing;
-    this.clientPool = new ConcurrentHashMap<>();
-    initHardcodedNodesAndClients();
+    initHardcodedNodesAndClientPool();
     ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_REFRESH_LOOP);
     scheduler.scheduleAtFixedRate(this::updateNodeInformation, REFRESH_RATE_NODE_INFORMATION_DELAY_SECS,
         REFRESH_RATE_NODE_INFORMATION_SECS,
         TimeUnit.SECONDS);
   }
 
-  public ClusterClient(final HashRingInterface hashRing, ConcurrentHashMap<Node, KVClient> clientPool) {
+  public ClusterClient(final HashRingInterface hashRing, HashMap<Node, KVClient> hardcodedNodes) {
     this.hashRing = hashRing;
-    this.clientPool = clientPool;
+    clientPool = new ConcurrentHashMap<>();
+    for (Node hardcodedNode : hardcodedNodes.keySet()) {
+      clientPool.put(hardcodedNode, hardcodedNodes.get(hardcodedNode));
+    }
+    this.hardcodedNodesToClientMap = hardcodedNodes;
   }
 
   private void createClientAndPutInPool(Node node) {
@@ -119,7 +116,8 @@ public class ClusterClient {
     }
 
     if (results.size() < READ_CONSENSUS_NUMBER) {
-      logger.warn("GET for key '{}' did not meet read consensus: got {} responses, needed {}", key, results.size(), READ_CONSENSUS_NUMBER);
+      logger.warn("GET for key '{}' did not meet read consensus: got {} responses, needed {}", key, results.size(),
+          READ_CONSENSUS_NUMBER);
       return Optional.empty();
     }
 
@@ -176,7 +174,8 @@ public class ClusterClient {
       }
 
       if (successCount < WRITE_CONSENSUS_NUMBER) {
-        logger.warn("PUT for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount, WRITE_CONSENSUS_NUMBER);
+        logger.warn("PUT for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount,
+            WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes updated the value, but "
             + WRITE_CONSENSUS_NUMBER + " were expected to updated that value");
       }
@@ -212,7 +211,8 @@ public class ClusterClient {
       }
 
       if (successCount < WRITE_CONSENSUS_NUMBER) {
-        logger.warn("DELETE for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount, WRITE_CONSENSUS_NUMBER);
+        logger.warn("DELETE for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key,
+            successCount, WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes deleted the value, but "
             + WRITE_CONSENSUS_NUMBER + " were expected to deleted that value");
       }
