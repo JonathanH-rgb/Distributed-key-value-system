@@ -15,7 +15,7 @@ public class ServerMain {
   public static void main(String[] args) throws EmptyHardcodedNodesListException {
     logger.info("ServerMain starting up");
     Node[] hardcodedNodesInfo = new Node[] { new Node("host", 8080) };
-    KVServer kvServer = new KVServer(hardcodedNodesInfo);
+    KVServer kvServer = new KVServer();
     kvServer.start(8088);
   }
 
