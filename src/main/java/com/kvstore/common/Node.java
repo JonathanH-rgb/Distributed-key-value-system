@@ -8,8 +8,8 @@ import java.util.Objects;
  */
 public class Node {
 
-  private String host;
-  private int port;
+  private final String host;
+  private final int port;
 
   public Node(String host, int port) {
     this.host = host;
@@ -19,14 +19,6 @@ public class Node {
   @Override
   public String toString() {
     return "Node [host=" + host + ", port=" + port + "]";
-  }
-
-  public void sethost(String host) {
-    this.host = host;
-  }
-
-  public void setport(int port) {
-    this.port = port;
   }
 
   public String gethost() {
