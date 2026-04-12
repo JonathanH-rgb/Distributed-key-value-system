@@ -176,11 +176,9 @@ public class HashRing implements HashRingInterface {
   }
 
   public Set<Node> getCopyOfNodesInRing() {
-    // TODO: make this method return a copy so client can't change the nodes?
-    // for now it returns the set
     lock.readLock().lock();
     try {
-      return nodesSet;
+      return new HashSet<>(nodesSet);
     } finally {
       lock.readLock().unlock();
     }
