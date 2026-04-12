@@ -255,7 +255,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     }
   }
 
-  public void gossipOtherRandomServers() {
+  private void gossipOtherRandomServers() {
 
     // Increase my counter before sending messages
     long newHeartBeat = nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1;
