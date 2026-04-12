@@ -6,7 +6,7 @@ public class VersionedValue {
   private long version;
 
   public VersionedValue(byte[] bytes, long version) {
-    this.bytes = bytes;
+    this.bytes = bytes.clone();
     this.version = version;
   }
 
@@ -19,11 +19,11 @@ public class VersionedValue {
   }
 
   public byte[] getBytes() {
-    return bytes;
+    return bytes.clone();
   }
 
   public void setBytes(byte[] bytes) {
-    this.bytes = bytes;
+    this.bytes = bytes.clone();
   }
 
 }
