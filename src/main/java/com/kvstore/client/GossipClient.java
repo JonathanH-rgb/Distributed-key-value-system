@@ -10,7 +10,6 @@ import com.kvstore.proto.KVStoreGrpc.KVStoreBlockingStub;
 import com.kvstore.proto.KVStoreProto.GossipRequest;
 import com.kvstore.proto.KVStoreProto.GossipResponse;
 import com.kvstore.proto.KVStoreProto.NodeStatus;
-import com.kvstore.proto.KVStoreProto.PingRequest;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -42,17 +41,6 @@ public class GossipClient {
 
   public void shutdown() {
     managedChannel.shutdown();
-  }
-
-  public boolean ping() {
-    PingRequest pingRequest = PingRequest.newBuilder().build();
-    try {
-      stub.ping(pingRequest);
-      return true;
-    } catch (Exception ex) {
-      logger.debug("Ping failed", ex);
-      return false;
-    }
   }
 
   public HashMap<Node, NodeInformation> gossip(HashMap<Node, NodeInformation> nodeInformation) {

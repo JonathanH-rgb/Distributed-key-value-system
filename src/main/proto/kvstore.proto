@@ -69,16 +69,10 @@ message ClusterViewResponse{
   repeated NodeInformation nodes = 1;
 }
 
-message PingRequest{
-}
-message PingResponse{}
-
-
 service KVStore {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Put(PutRequest) returns (PutResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc Gossip(GossipRequest) returns (GossipResponse);
-  rpc ViewCluster(ClusterViewRequest) returns (ClusterViewResponse); 
-  rpc Ping(PingRequest) returns (PingResponse);
+  rpc ViewCluster(ClusterViewRequest) returns (ClusterViewResponse);
 }

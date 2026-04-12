@@ -31,8 +31,6 @@ import com.kvstore.proto.KVStoreProto.GetRequest;
 import com.kvstore.proto.KVStoreProto.GetResponse;
 import com.kvstore.proto.KVStoreProto.GossipRequest;
 import com.kvstore.proto.KVStoreProto.GossipResponse;
-import com.kvstore.proto.KVStoreProto.PingRequest;
-import com.kvstore.proto.KVStoreProto.PingResponse;
 import com.kvstore.proto.KVStoreProto.PutRequest;
 import com.kvstore.proto.KVStoreProto.PutResponse;
 import com.kvstore.storage.InMemoryStore;
@@ -66,14 +64,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public final static int GOSSIP_OTHER_SERVERS_FREQ = 1;
   public final static int MAX_GOSSIP_ATTEMPS = 3;
 
-  public KVServer() throws EmptyHardcodedNodesListException {
-    this.storageEngine = new InMemoryStore();
-    nodeToNodeInformationMap = new ConcurrentHashMap<>();
-    nodeToFailedGossipAttemps = new ConcurrentHashMap<>();
-    nodeToGossipClientMap = new ConcurrentHashMap<>();
-    this.serverNode = null;
-  }
-
   public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes) throws EmptyHardcodedNodesListException {
 
     if (hardcodeNodes.length == 0) {
@@ -87,6 +77,14 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     this.serverNode = new Node(serverHost, serverPort);
     this.storageEngine = new InMemoryStore();
     populateHardcodedNodes(hardcodeNodes);
+  }
+
+  public KVServer() {
+    nodeToNodeInformationMap = new ConcurrentHashMap<>();
+    nodeToFailedGossipAttemps = new ConcurrentHashMap<>();
+    nodeToGossipClientMap = new ConcurrentHashMap<>();
+    serverNode = null;
+    this.storageEngine = new InMemoryStore();
   }
 
   public void start(int portNumber) {
@@ -183,17 +181,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       responseObserver.onCompleted();
     } catch (Exception ex) {
       logger.error("Error handling DELETE request for key '{}'", request.getKey(), ex);
-      responseObserver.onError(ex);
-    }
-  }
-
-  @Override
-  public void ping(PingRequest request, StreamObserver<PingResponse> responseObserver) {
-    try {
-      responseObserver.onNext(PingResponse.newBuilder().build());
-      responseObserver.onCompleted();
-    } catch (Exception ex) {
-      logger.error("Error handling PING request", ex);
       responseObserver.onError(ex);
     }
   }
