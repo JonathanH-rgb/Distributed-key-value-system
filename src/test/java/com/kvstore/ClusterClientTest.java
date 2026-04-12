@@ -1,10 +1,12 @@
 package com.kvstore;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import com.kvstore.client.ClusterClient;
 import com.kvstore.client.KVClient;
 import com.kvstore.common.Node;
+import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
 import com.kvstore.common.exceptions.WriteConsensusException;
