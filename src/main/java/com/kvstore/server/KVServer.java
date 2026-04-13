@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 
 import com.google.protobuf.ByteString;
 import com.kvstore.client.GossipClient;
+import com.kvstore.client.GossipClientFactory;
 import com.kvstore.common.Node;
 import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
@@ -56,6 +57,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   private ConcurrentHashMap<Node, GossipClient> nodeToGossipClientMap;
   private ConcurrentHashMap<Node, Integer> nodeToFailedGossipAttemps;
   private StorageEngine storageEngine;
+  private GossipClientFactory gossipClientFactory;
   public final static int FANOUT_FACTOR = 3;
   private final Node serverNode;
   public final static int GOSSIP_TIMEOUT_SECS = 5;
@@ -64,7 +66,8 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public final static int GOSSIP_OTHER_SERVERS_FREQ = 1;
   public final static int MAX_GOSSIP_ATTEMPS = 3;
 
-  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes) throws EmptyHardcodedNodesListException {
+  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory)
+      throws EmptyHardcodedNodesListException {
 
     if (hardcodeNodes.length == 0) {
       throw new EmptyHardcodedNodesListException("Provided hardcoded nodes list can not be empty");
@@ -76,6 +79,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
     this.serverNode = new Node(serverHost, serverPort);
     this.storageEngine = new InMemoryStore();
+    this.gossipClientFactory = gossipClientFactory;
     populateHardcodedNodes(hardcodeNodes);
   }
 
@@ -274,7 +278,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     // Make sure nodes have gossip client, if not create
     selectedNodes.stream().forEach(n -> {
       if (!nodeToGossipClientMap.containsKey(n)) {
-        GossipClient gossipClient = new GossipClient(n.gethost(), n.getport());
+        GossipClient gossipClient = gossipClientFactory.create(n.gethost(), n.getport());
         nodeToGossipClientMap.put(n, gossipClient);
       }
     });
