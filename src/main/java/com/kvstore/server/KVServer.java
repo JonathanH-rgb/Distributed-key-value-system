@@ -344,7 +344,12 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         }
       }
     }
+  }
 
+  public void shutdown() {
+    for (Node key : nodeToGossipClientMap.keySet()) {
+      nodeToGossipClientMap.get(key).shutdown();
+    }
   }
 
 }
