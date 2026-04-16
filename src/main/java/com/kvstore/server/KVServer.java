@@ -14,6 +14,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import com.google.protobuf.ByteString;
@@ -52,6 +53,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
   private static final Logger logger = LoggerFactory.getLogger(KVServer.class);
 
+  private AtomicBoolean gossipingStarted = new AtomicBoolean(false);
   private Server server;
   private ConcurrentHashMap<Node, NodeInformation> nodeToNodeInformationMap;
   private ConcurrentHashMap<Node, GossipClient> nodeToGossipClientMap;
@@ -91,25 +93,31 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     this.storageEngine = new InMemoryStore();
   }
 
-  public void start(int portNumber) {
-    server = ServerBuilder.forPort(portNumber)
+  public void start() {
+    server = ServerBuilder.forPort(serverNode.getport())
         .addService(this)
         .build();
     try {
       server.start();
-      logger.info("KVServer started on port {}", portNumber);
-      ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_GOSSIP_LOOP);
-      scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, GOSSIP_LOOP_DELAY, GOSSIP_OTHER_SERVERS_FREQ,
-          TimeUnit.SECONDS);
+      logger.info("KVServer started on port {}", serverNode.getport());
       server.awaitTermination();
-      logger.info("KVServer stopped on port {}", portNumber);
+      logger.info("KVServer stopped on port {}", serverNode.getport());
     } catch (IOException ioEx) {
-      logger.error("Failed to start server on port {}", portNumber, ioEx);
-      throw new RuntimeException("Failed to start server on port " + portNumber, ioEx);
+      logger.error("Failed to start server on port {}", serverNode.getport(), ioEx);
+      throw new RuntimeException("Failed to start server on port " + serverNode.getport(), ioEx);
     } catch (InterruptedException iEx) {
-      logger.error("Server interrupted while awaiting termination on port {}", portNumber, iEx);
+      logger.error("Server interrupted while awaiting termination on port {}", serverNode.getport(), iEx);
       throw new RuntimeException("Server interrupted", iEx);
     }
+  }
+
+  public void startGossip() {
+    if (!gossipingStarted.compareAndSet(false, true)) {
+      return;
+    }
+    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_GOSSIP_LOOP);
+    scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, GOSSIP_LOOP_DELAY, GOSSIP_OTHER_SERVERS_FREQ,
+        TimeUnit.SECONDS);
   }
 
   private void populateHardcodedNodes(Node[] hardcodedNodes) {
