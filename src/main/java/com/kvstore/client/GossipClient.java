@@ -55,6 +55,7 @@ public class GossipClient {
                     .build())
                 .setStatus(com.kvstore.proto.KVStoreProto.NodeStatus.forNumber(entry.getValue().getStatus().ordinal()))
                 .setHeartBeatCounter(entry.getValue().getHeartBeatCounter())
+                .setIncarnationNumber(entry.getValue().getIncarnationNumber())
                 .build())
             .collect(Collectors.toList()))
         .build();
@@ -75,7 +76,7 @@ public class GossipClient {
 
       ans.put(
           new Node(protoNode.getNode().getHost(), protoNode.getNode().getPort()),
-          new NodeInformation(status, protoNode.getHeartBeatCounter()));
+          new NodeInformation(status, protoNode.getHeartBeatCounter(), protoNode.getIncarnationNumber()));
 
     });
 
