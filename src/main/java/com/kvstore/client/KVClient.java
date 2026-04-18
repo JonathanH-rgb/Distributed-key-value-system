@@ -99,7 +99,7 @@ public class KVClient {
       Node node = new Node(protoNode.getNode().getHost(), protoNode.getNode().getPort());
       NodeInformation incoming = new NodeInformation(
           NodeInformation.Status.valueOf(protoNode.getStatus().name()),
-          protoNode.getHeartBeatCounter());
+          protoNode.getHeartBeatCounter(), protoNode.getIncarnationNumber());
       nodeInfo.put(node, incoming);
     });
     return nodeInfo;
