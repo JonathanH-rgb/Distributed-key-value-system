@@ -60,6 +60,7 @@ message NodeInformation{
   Node node = 1;
   NodeStatus status = 2;
   int64 heartBeatCounter = 3;
+  int64 incarnationNumber = 4;
 }
 
 message ClusterViewRequest{
