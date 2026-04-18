@@ -55,7 +55,7 @@ public class GossipClientKVServerIntegrationTest {
   public void gossipShouldReturnTest() {
     HashMap<Node, NodeInformation> nodeToNodeInfo = new HashMap<>();
     Node testNode = new Node("test1", 1);
-    NodeInformation testNodeInfo = new NodeInformation(NodeInformation.Status.ALIVE, 1);
+    NodeInformation testNodeInfo = new NodeInformation(NodeInformation.Status.ALIVE, 1, 0);
     nodeToNodeInfo.put(testNode, testNodeInfo);
     HashMap<Node, NodeInformation> returnedNodeInfo = client.gossip(nodeToNodeInfo);
     assertTrue(returnedNodeInfo.containsKey(testNode));
@@ -67,10 +67,10 @@ public class GossipClientKVServerIntegrationTest {
   public void gossipHigherHeartShouldRemain() {
     HashMap<Node, NodeInformation> nodeToNodeInfo = new HashMap<>();
     Node testNode1 = new Node("test1", 1);
-    NodeInformation testNodeInfo1 = new NodeInformation(NodeInformation.Status.ALIVE, 10);
+    NodeInformation testNodeInfo1 = new NodeInformation(NodeInformation.Status.ALIVE, 10, 0);
     nodeToNodeInfo.put(testNode1, testNodeInfo1);
     HashMap<Node, NodeInformation> returnedNodeInfo = client.gossip(nodeToNodeInfo);
-    testNodeInfo1 = new NodeInformation(NodeInformation.Status.ALIVE, 1);
+    testNodeInfo1 = new NodeInformation(NodeInformation.Status.ALIVE, 1, 0);
     nodeToNodeInfo.put(testNode1, testNodeInfo1);
     returnedNodeInfo = client.gossip(nodeToNodeInfo);
     assertTrue(returnedNodeInfo.containsKey(testNode1));
