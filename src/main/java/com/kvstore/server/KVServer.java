@@ -60,16 +60,17 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   private ConcurrentHashMap<Node, Integer> nodeToFailedGossipAttemps;
   private StorageEngine storageEngine;
   private GossipClientFactory gossipClientFactory;
-  public final static int FANOUT_FACTOR = 3;
-  private final Node serverNode;
-  public final static int GOSSIP_TIMEOUT_SECS = 5;
   public final static int THREADS_RUNNING_GOSSIP_LOOP = 1;
-  public final static int GOSSIP_LOOP_DELAY = 0;
-  public final static int GOSSIP_OTHER_SERVERS_FREQ = 1;
-  public final static int MAX_GOSSIP_ATTEMPS = 3;
 
-  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory)
-      throws EmptyHardcodedNodesListException {
+  private final Node serverNode;
+  public final int FANOUT_FACTOR;
+  public final int GOSSIP_TIMEOUT_SECS;
+  public final int GOSSIP_LOOP_DELAY_SECS;
+  public final int GOSSIP_OTHER_SERVERS_FREQ_SECS;
+  public final int MAX_GOSSIP_ATTEMPS;
+
+  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory,
+      ClusterConfig config) throws EmptyHardcodedNodesListException {
 
     if (hardcodeNodes.length == 0) {
       throw new EmptyHardcodedNodesListException("Provided hardcoded nodes list can not be empty");
@@ -82,7 +83,17 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     this.serverNode = new Node(serverHost, serverPort);
     this.storageEngine = new InMemoryStore();
     this.gossipClientFactory = gossipClientFactory;
+    this.FANOUT_FACTOR = config.FANOUT_FACTOR;
+    this.GOSSIP_TIMEOUT_SECS = config.GOSSIP_TIMEOUT_SECS;
+    this.GOSSIP_LOOP_DELAY_SECS = config.GOSSIP_LOOP_DELAY_SECS;
+    this.GOSSIP_OTHER_SERVERS_FREQ_SECS = config.GOSSIP_OTHER_SERVERS_FREQ_SECS;
+    this.MAX_GOSSIP_ATTEMPS = config.MAX_GOSSIP_ATTEMPS;
     populateHardcodedNodes(hardcodeNodes);
+  }
+
+  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory)
+      throws EmptyHardcodedNodesListException, IOException {
+    this(serverHost, serverPort, hardcodeNodes, gossipClientFactory, new ClusterConfig());
   }
 
   public KVServer() {
@@ -91,6 +102,11 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     nodeToGossipClientMap = new ConcurrentHashMap<>();
     serverNode = null;
     this.storageEngine = new InMemoryStore();
+    this.FANOUT_FACTOR = 3;
+    this.GOSSIP_TIMEOUT_SECS = 5;
+    this.GOSSIP_LOOP_DELAY_SECS = 0;
+    this.GOSSIP_OTHER_SERVERS_FREQ_SECS = 1;
+    this.MAX_GOSSIP_ATTEMPS = 3;
   }
 
   public void start() {
@@ -116,13 +132,14 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       return;
     }
     ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_GOSSIP_LOOP);
-    scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, GOSSIP_LOOP_DELAY, GOSSIP_OTHER_SERVERS_FREQ,
+    scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, GOSSIP_LOOP_DELAY_SECS,
+        GOSSIP_OTHER_SERVERS_FREQ_SECS,
         TimeUnit.SECONDS);
   }
 
   private void populateHardcodedNodes(Node[] hardcodedNodes) {
 
-    NodeInformation thisServerInfo = new NodeInformation(NodeInformation.Status.ALIVE, 1);
+    NodeInformation thisServerInfo = new NodeInformation(NodeInformation.Status.ALIVE, 1, System.currentTimeMillis());
     nodeToNodeInformationMap.put(serverNode, thisServerInfo);
 
     for (int i = 0; i < hardcodedNodes.length; i++) {
@@ -130,7 +147,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       if (hardcodedNode.gethost().equals(serverNode.gethost()) && hardcodedNode.getport() == serverNode.getport()) {
         continue;
       }
-      NodeInformation newNodeInformation = new NodeInformation(NodeInformation.Status.ALIVE, 0);
+      NodeInformation newNodeInformation = new NodeInformation(NodeInformation.Status.ALIVE, 0, 0);
       nodeToNodeInformationMap.put(hardcodedNode, newNodeInformation);
     }
   }
@@ -210,6 +227,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
 
             .setStatus(com.kvstore.proto.KVStoreProto.NodeStatus.valueOf(entry.getValue().getStatus().name()))
             .setHeartBeatCounter(entry.getValue().getHeartBeatCounter())
+            .setIncarnationNumber(entry.getValue().getIncarnationNumber())
             .build())
         .collect(Collectors.toList());
 
@@ -237,6 +255,26 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     }
   }
 
+  private NodeInformation compareNodeInfo(NodeInformation a, NodeInformation b) {
+    boolean differentIncarnationNumber = a.getIncarnationNumber() != b.getIncarnationNumber();
+    if (differentIncarnationNumber) {
+      return a.getIncarnationNumber() > b.getIncarnationNumber() ? a : b;
+    }
+    boolean differentHeartBeatNumber = a.getHeartBeatCounter() != b.getHeartBeatCounter();
+    if (differentHeartBeatNumber) {
+      return a.getHeartBeatCounter() > b.getHeartBeatCounter() ? a : b;
+    }
+    boolean firstAlive = a.getStatus().equals(NodeInformation.Status.ALIVE);
+    boolean secondAlive = b.getStatus().equals(NodeInformation.Status.ALIVE);
+    if (firstAlive && !secondAlive) {
+      return b;
+    }
+    if (!firstAlive && secondAlive) {
+      return a;
+    }
+    return a;
+  }
+
   @Override
   public void gossip(GossipRequest request, StreamObserver<GossipResponse> responseObserver) {
     logger.debug("Received gossip message with {} node entries", request.getNodesCount());
@@ -246,9 +284,10 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         Node node = new Node(protoNode.getNode().getHost(), protoNode.getNode().getPort());
         NodeInformation incoming = new NodeInformation(
             NodeInformation.Status.valueOf(protoNode.getStatus().name()),
-            protoNode.getHeartBeatCounter());
+            protoNode.getHeartBeatCounter(),
+            protoNode.getIncarnationNumber());
         nodeToNodeInformationMap.merge(node, incoming,
-            (existing, newVal) -> newVal.getHeartBeatCounter() > existing.getHeartBeatCounter() ? newVal : existing);
+            (existing, newVal) -> compareNodeInfo(existing, newVal));
       });
 
       // Format this node info to send to requesting node
@@ -275,6 +314,11 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     logger.debug("Incremented heartbeat counter for {} to {}", serverNode, newHeartBeat);
 
     // select random nodes safely
+    // As you can see we only gossip alive servers, so how can we know when a dead
+    // one is back?
+    // Well when a dead one is back it will include itself as alive to this list and
+    // start communicating
+    // it's status to other servers
     List<Node> aliveNodes = new ArrayList<>(nodeToNodeInformationMap.keySet())
         .stream().filter(n -> nodeToNodeInformationMap.get(n).getStatus() != NodeInformation.Status.DEAD)
         .collect(Collectors.toList());
@@ -344,11 +388,9 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
           nodeToNodeInformationMap.put(currentNode, currentNodeInfo);
           logger.info("Discovered new node {} via gossip; added to cluster view", currentNode);
         } else {
-          long heartBeatRegisteredInThisServer = nodeToNodeInformationMap.get(currentNode).getHeartBeatCounter();
-          long heartBeatInThisGossip = message.get(currentNode).getHeartBeatCounter();
-          if (heartBeatInThisGossip > heartBeatRegisteredInThisServer) {
-            nodeToNodeInformationMap.put(currentNode, currentNodeInfo);
-          }
+          NodeInformation mostRecentInfo = compareNodeInfo(nodeToNodeInformationMap.get(currentNode),
+              message.get(currentNode));
+          nodeToNodeInformationMap.put(currentNode, mostRecentInfo);
         }
       }
     }
