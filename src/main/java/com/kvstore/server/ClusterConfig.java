@@ -3,6 +3,11 @@ package com.kvstore.server;
 import java.io.IOException;
 import java.util.Properties;
 
+/**
+ * Gossip configuration for a server node.
+ * Loaded from cluster.properties on the classpath in production,
+ * or constructed directly with values for tests.
+ */
 public class ClusterConfig {
 
   public final int FANOUT_FACTOR;

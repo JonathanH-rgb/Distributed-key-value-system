@@ -15,6 +15,10 @@ import com.kvstore.common.exceptions.WALCouldNotCloseLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
 
+/**
+ * Append-only log that records every write operation to disk before it is applied to memory.
+ * On startup, the log can be replayed to recover state after a crash.
+ */
 public class WriteAheadLog {
 
   private static final Logger logger = LoggerFactory.getLogger(WriteAheadLog.class);

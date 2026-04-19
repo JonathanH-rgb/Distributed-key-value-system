@@ -12,9 +12,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * In-memory implementation of StorageEngine.
- * Uses a ConcurrentHashMap to safely handle concurrent reads and writes from
- * multiple threads.
+ * Durable implementation of StorageEngine.
+ * Writes every operation to the WAL before applying it to the in-memory map,
+ * so state can be recovered by replaying the log after a crash.
  */
 public class DurableStorageEngine implements StorageEngine {
 
