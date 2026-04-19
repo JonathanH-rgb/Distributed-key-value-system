@@ -8,15 +8,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.kvstore.common.VersionedValue;
-import com.kvstore.storage.InMemoryStore;
+import com.kvstore.storage.DurableStorageEngine;
 
 public class InMemoryStoreTest {
 
-  private InMemoryStore inMemoryStore;
+  private DurableStorageEngine inMemoryStore;
 
   @BeforeEach
   public void setup() {
-    inMemoryStore = new InMemoryStore();
+    inMemoryStore = new DurableStorageEngine();
     inMemoryStore.put("test1", "test1".getBytes(), 1L);
     inMemoryStore.put("test2", "test2".getBytes(), 1L);
   }

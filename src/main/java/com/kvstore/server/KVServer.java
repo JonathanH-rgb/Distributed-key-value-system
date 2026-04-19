@@ -24,6 +24,7 @@ import com.kvstore.common.Node;
 import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.EmptyHardcodedNodesListException;
+import com.kvstore.common.exceptions.StorageException;
 import com.kvstore.proto.KVStoreGrpc;
 import com.kvstore.proto.KVStoreProto.ClusterViewRequest;
 import com.kvstore.proto.KVStoreProto.ClusterViewResponse;
@@ -35,7 +36,7 @@ import com.kvstore.proto.KVStoreProto.GossipRequest;
 import com.kvstore.proto.KVStoreProto.GossipResponse;
 import com.kvstore.proto.KVStoreProto.PutRequest;
 import com.kvstore.proto.KVStoreProto.PutResponse;
-import com.kvstore.storage.InMemoryStore;
+import com.kvstore.storage.DurableStorageEngine;
 import com.kvstore.storage.StorageEngine;
 
 import io.grpc.Server;
@@ -70,7 +71,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public final int MAX_GOSSIP_ATTEMPS;
 
   public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory,
-      ClusterConfig config) throws EmptyHardcodedNodesListException {
+      ClusterConfig config) throws EmptyHardcodedNodesListException, StorageException {
 
     if (hardcodeNodes.length == 0) {
       throw new EmptyHardcodedNodesListException("Provided hardcoded nodes list can not be empty");
@@ -81,7 +82,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     nodeToGossipClientMap = new ConcurrentHashMap<>();
 
     this.serverNode = new Node(serverHost, serverPort);
-    this.storageEngine = new InMemoryStore();
+    this.storageEngine = new DurableStorageEngine();
     this.gossipClientFactory = gossipClientFactory;
     this.FANOUT_FACTOR = config.FANOUT_FACTOR;
     this.GOSSIP_TIMEOUT_SECS = config.GOSSIP_TIMEOUT_SECS;
@@ -91,17 +92,12 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     populateHardcodedNodes(hardcodeNodes);
   }
 
-  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory)
-      throws EmptyHardcodedNodesListException, IOException {
-    this(serverHost, serverPort, hardcodeNodes, gossipClientFactory, new ClusterConfig());
-  }
-
-  public KVServer() {
+  public KVServer() throws StorageException {
     nodeToNodeInformationMap = new ConcurrentHashMap<>();
     nodeToFailedGossipAttemps = new ConcurrentHashMap<>();
     nodeToGossipClientMap = new ConcurrentHashMap<>();
     serverNode = null;
-    this.storageEngine = new InMemoryStore();
+    this.storageEngine = new DurableStorageEngine();
     this.FANOUT_FACTOR = 3;
     this.GOSSIP_TIMEOUT_SECS = 5;
     this.GOSSIP_LOOP_DELAY_SECS = 0;
