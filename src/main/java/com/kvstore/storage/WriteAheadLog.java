@@ -11,9 +11,9 @@ import java.util.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.kvstore.common.exceptions.WALCouldNotCloseLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
-import com.kvstore.common.exceptions.WALEmptyWriteAttemptException;
 
 public class WriteAheadLog {
 
@@ -42,40 +42,45 @@ public class WriteAheadLog {
     }
   }
 
-  public void shutdown() throws IOException {
-    writer.close();
+  public void shutdown() throws WALCouldNotCloseLogFileException {
+    try {
+      writer.close();
+      logger.info("WAL closed at {}", logPath);
+    } catch (IOException ex) {
+      throw new WALCouldNotCloseLogFileException("Failed to close WAL file at " + logPath, ex);
+    }
   }
 
   // synchronized makes this only accesible from one thread at the time
-  public synchronized void write(Operation operation, String key, byte[] value, long version)
+  public synchronized void writePut(String key, byte[] value, long version)
       throws WALCouldNotWriteToLogFileException {
     long time = Instant.now().toEpochMilli();
     String valueString = Base64.getEncoder().encodeToString(value);
-    String message = "";
-    switch (operation) {
-      case Operation.PUT:
-        message = time + "|" + operation + "|" + key + "|" + valueString + "|" + version;
-        break;
-      case Operation.DELETE:
-        message = time + "|" + operation + "|" + key;
-        break;
-    }
-
-    if (message.isEmpty()) {
-      // I think this should be a runtime exception, we can't recover from this logic
-      throw new WALEmptyWriteAttemptException(
-          "WAL produced empty message for operation=" + operation + " key=" + key + " version=" + version
-              + " — unhandled Operation type, check the switch statement");
-    }
-
+    String message = time + "|" + Operation.PUT + "|" + key + "|" + valueString + "|" + version;
     try {
       writer.write(message);
       writer.newLine();
       writer.flush();
-      logger.debug("WAL wrote operation={} key={} version={}", operation, key, version);
+      logger.debug("WAL wrote operation={} key={} version={}", Operation.PUT, key, version);
     } catch (IOException ex) {
       throw new WALCouldNotWriteToLogFileException(
-          "Failed to write to WAL file at " + logPath + " for operation=" + operation + " key=" + key, ex);
+          "Failed to write to WAL file at " + logPath + " for operation=" + Operation.PUT + " key=" + key, ex);
+    }
+  }
+
+  // synchronized makes this only accesible from one thread at the time
+  public synchronized void writeDelete(String key)
+      throws WALCouldNotWriteToLogFileException {
+    long time = Instant.now().toEpochMilli();
+    String message = time + "|" + Operation.DELETE + "|" + key;
+    try {
+      writer.write(message);
+      writer.newLine();
+      writer.flush();
+      logger.debug("WAL wrote operation={} key={}", Operation.DELETE, key);
+    } catch (IOException ex) {
+      throw new WALCouldNotWriteToLogFileException(
+          "Failed to write to WAL file at " + logPath + " for operation=" + Operation.DELETE + " key=" + key, ex);
     }
   }
 
