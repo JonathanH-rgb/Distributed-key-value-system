@@ -20,12 +20,12 @@ import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 
-public class ClientServerIntegrationTest {
+public class KVClientKVServerIntegrationTest {
 
   private KVClient client;
   private Server server;
 
-  public ClientServerIntegrationTest() {
+  public KVClientKVServerIntegrationTest() {
   }
 
   @BeforeEach

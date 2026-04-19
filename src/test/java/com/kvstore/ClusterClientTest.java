@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.HashMap;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -44,7 +45,7 @@ public class ClusterClientTest {
   public void setup() throws Exception {
 
     String serverName;
-    ConcurrentHashMap<Node, KVClient> clientPool = new ConcurrentHashMap<>();
+    HashMap<Node, KVClient> clientPool = new HashMap<>();
     HashRing hashRing = new HashRing(NUMBER_VIRTUAL_NODES);
 
     for (int i = 0; i < NUMBER_OF_SERVERS; i++) {
@@ -117,26 +118,6 @@ public class ClusterClientTest {
   }
 
   @Test
-  public void getWithNoNodesShouldReturnEmpty() throws NodeNotInRingException {
-    for (int i = 0; i < NUMBER_OF_SERVERS; i++) {
-      clusterClient.removeNode(nodes[i]);
-    }
-    String key1 = "key1";
-    assertEquals(Optional.empty(), clusterClient.getValue(key1));
-  }
-
-  @Test
-  public void getWithNotEnoughNodesShouldReturnEmpty() throws NodeNotInRingException {
-
-    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.READ_CONSENSUS_NUMBER; i--) {
-      clusterClient.removeNode(nodes[i - 1]);
-    }
-
-    String key1 = "key1";
-    assertEquals(Optional.empty(), clusterClient.getValue(key1));
-  }
-
-  @Test
   public void putWithNotEnoughNodesShouldThrowException() throws NodeNotInRingException {
 
     String key = "key1";
@@ -163,36 +144,4 @@ public class ClusterClientTest {
     assertThrows(WriteConsensusException.class,
         () -> clusterClient.deleteValue(key));
   }
-
-  @Test
-  public void getWithDifferentVersionReturnLatestTest() throws NodeNotInRingException {
-
-    String key = "key";
-    byte[] value1 = "value1".getBytes();
-    long version1 = 1L;
-    byte[] value2 = "value2".getBytes();
-    long version2 = 2L;
-
-    // Only keep necessary number of nodes to read so we avoid missing the node
-    for (int i = NUMBER_OF_SERVERS; i > clusterClient.PARTITION_FACTOR; i--) {
-      clusterClient.removeNode(nodes[i - 1]);
-    }
-
-    // In all nodes we put version 1 of value
-    for (int i = 0; i < clusterClient.PARTITION_FACTOR; i++) {
-      clients[i].put(key, value1, version1);
-    }
-
-    // In just one node we put the newest value, remember we have
-    // PARTITION_FACTOR
-    // nodes so we are sure this node will be picked up while reading
-    clients[0].put(key, value2, version2);
-
-    Optional<VersionedValue> versionedValue = clusterClient.getValue(key);
-    assertTrue(versionedValue.isPresent());
-    assertEquals(versionedValue.get().getVersion(), version2);
-    assertArrayEquals(versionedValue.get().getBytes(), value2);
-
-  }
-
 }

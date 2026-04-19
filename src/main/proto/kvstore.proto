@@ -36,8 +36,44 @@ message DeleteResponse{
   string errorCode = 2;
 }
 
+message Node{
+  string host=1;
+  int32 port=2;
+}
+
+//For servers to talk
+message GossipRequest{
+  repeated NodeInformation nodes = 1;
+}
+
+message GossipResponse{
+  repeated NodeInformation nodes = 1;
+}
+
+enum NodeStatus{
+  ALIVE=0;
+  DEAD=1;
+  SUSPECT=2;
+}
+
+message NodeInformation{
+  Node node = 1;
+  NodeStatus status = 2;
+  int64 heartBeatCounter = 3;
+  int64 incarnationNumber = 4;
+}
+
+message ClusterViewRequest{
+}
+
+message ClusterViewResponse{
+  repeated NodeInformation nodes = 1;
+}
+
 service KVStore {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Put(PutRequest) returns (PutResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Gossip(GossipRequest) returns (GossipResponse);
+  rpc ViewCluster(ClusterViewRequest) returns (ClusterViewResponse);
 }

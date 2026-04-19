@@ -2,24 +2,30 @@ package com.kvstore.client;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import com.kvstore.common.Node;
+import com.kvstore.common.NodeInformation;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
 import com.kvstore.common.exceptions.WriteConsensusException;
 import com.kvstore.consistenHashing.HashRingInterface;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Multi-node client for the distributed KV store.
@@ -28,8 +34,11 @@ import com.kvstore.consistenHashing.HashRingInterface;
  */
 public class ClusterClient {
 
+  private static final Logger logger = LoggerFactory.getLogger(ClusterClient.class);
+
   private final HashRingInterface hashRing;
   private ConcurrentHashMap<Node, KVClient> clientPool;
+  private Map<Node, KVClient> hardcodedNodesToClientMap;
   // TODO: for now hardcoded, maybe change in the future
   public final int PARTITION_FACTOR = 3;
   public final int READ_CONSENSUS_NUMBER = 2;
@@ -37,16 +46,32 @@ public class ClusterClient {
   public final int TIMEOUT_LIMIT_SECS_GET = 5;
   public final int TIMEOUT_LIMIT_SECS_DELETE = 5;
   public final int TIMEOUT_LIMIT_SECS_PUT = 5;
+  public final int REFRESH_RATE_NODE_INFORMATION_SECS = 3;
+  public final int REFRESH_RATE_NODE_INFORMATION_DELAY_SECS = 0;
+  public final int THREADS_RUNNING_REFRESH_LOOP = 1;
+
+  private void initHardcodedNodesAndClientPool() {
+    // TODO: make this configurable, maybe read from a file
+    // Implement
+    throw new RuntimeException("Implement me");
+  }
 
   public ClusterClient(final HashRingInterface hashRing) {
     this.hashRing = hashRing;
-    this.clientPool = new ConcurrentHashMap<>();
-    populateClientPool();
+    initHardcodedNodesAndClientPool();
+    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_REFRESH_LOOP);
+    scheduler.scheduleAtFixedRate(this::updateNodeInformation, REFRESH_RATE_NODE_INFORMATION_DELAY_SECS,
+        REFRESH_RATE_NODE_INFORMATION_SECS,
+        TimeUnit.SECONDS);
   }
 
-  public ClusterClient(final HashRingInterface hashRing, ConcurrentHashMap<Node, KVClient> clientPool) {
+  public ClusterClient(final HashRingInterface hashRing, HashMap<Node, KVClient> hardcodedNodes) {
     this.hashRing = hashRing;
-    this.clientPool = clientPool;
+    clientPool = new ConcurrentHashMap<>();
+    for (Node hardcodedNode : hardcodedNodes.keySet()) {
+      clientPool.put(hardcodedNode, hardcodedNodes.get(hardcodedNode));
+    }
+    this.hardcodedNodesToClientMap = hardcodedNodes;
   }
 
   private void createClientAndPutInPool(Node node) {
@@ -54,15 +79,9 @@ public class ClusterClient {
     clientPool.put(node, client);
   }
 
-  private void populateClientPool() {
-    hashRing.getCopyOfNodesInRing()
-        .stream()
-        .forEach(node -> {
-          createClientAndPutInPool(node);
-        });
-  }
-
   public Optional<VersionedValue> getValue(final String key) {
+
+    logger.debug("GET request for key '{}'", key);
 
     final HashSet<Node> nodes;
     List<Optional<VersionedValue>> results = new ArrayList<>();
@@ -90,13 +109,15 @@ public class ClusterClient {
           break;
 
         } catch (TimeoutException | ExecutionException ex) {
-
+          logger.error("GET request for key '{}' failed on one node", key, ex);
         }
       }
 
     }
 
     if (results.size() < READ_CONSENSUS_NUMBER) {
+      logger.warn("GET for key '{}' did not meet read consensus: got {} responses, needed {}", key, results.size(),
+          READ_CONSENSUS_NUMBER);
       return Optional.empty();
     }
 
@@ -128,6 +149,8 @@ public class ClusterClient {
   public void putValue(final String key, final byte[] value, long version)
       throws NotEnoughNodesException, WriteConsensusException {
 
+    logger.debug("PUT request for key '{}' at version {}", key, version);
+
     final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
         PARTITION_FACTOR);
 
@@ -146,10 +169,13 @@ public class ClusterClient {
           Thread.currentThread().interrupt();
           break;
         } catch (TimeoutException | ExecutionException ex) {
+          logger.error("PUT request for key '{}' failed on one node", key, ex);
         }
       }
 
       if (successCount < WRITE_CONSENSUS_NUMBER) {
+        logger.warn("PUT for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount,
+            WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes updated the value, but "
             + WRITE_CONSENSUS_NUMBER + " were expected to updated that value");
       }
@@ -159,6 +185,8 @@ public class ClusterClient {
   }
 
   public void deleteValue(final String key) throws NotEnoughNodesException, WriteConsensusException {
+
+    logger.debug("DELETE request for key '{}'", key);
 
     final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
         PARTITION_FACTOR);
@@ -178,10 +206,13 @@ public class ClusterClient {
           Thread.currentThread().interrupt();
           break;
         } catch (TimeoutException | ExecutionException ex) {
+          logger.error("DELETE request for key '{}' failed on one node", key, ex);
         }
       }
 
       if (successCount < WRITE_CONSENSUS_NUMBER) {
+        logger.warn("DELETE for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key,
+            successCount, WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes deleted the value, but "
             + WRITE_CONSENSUS_NUMBER + " were expected to deleted that value");
       }
@@ -189,16 +220,59 @@ public class ClusterClient {
     }
   }
 
-  public void addNode(final Node node) throws NodeAlreadyInRingException {
+  private void addNode(final Node node) throws NodeAlreadyInRingException {
     hashRing.addNode(node);
     createClientAndPutInPool(node);
+    logger.info("Node {} added to the hash ring", node);
   }
 
-  public void removeNode(final Node node) throws NodeNotInRingException {
+  private void removeNode(final Node node) throws NodeNotInRingException {
     hashRing.removeNode(node);
     KVClient client = clientPool.get(node);
     client.shutdown();
     clientPool.remove(node);
+    logger.info("Node {} removed from the hash ring", node);
+  }
+
+  private void updateNodeInformation() {
+
+    HashMap<Node, NodeInformation> clusterNodeInfo = new HashMap<>();
+    boolean ableToCallOneHardcodedNodeForStatus = false;
+
+    for (Node hardcodedNodeToTryWith : hardcodedNodesToClientMap.keySet()) {
+      KVClient client = hardcodedNodesToClientMap.get(hardcodedNodeToTryWith);
+      try {
+        clusterNodeInfo = client.viewCluster();
+        ableToCallOneHardcodedNodeForStatus = true;
+        break;
+      } catch (Exception ex) {
+        logger.warn("Unable to reach seed node {} for cluster view update", hardcodedNodeToTryWith);
+      }
+    }
+
+    if (!ableToCallOneHardcodedNodeForStatus) {
+      logger.warn("Unable to connect to any seed node; skipping cluster view update");
+      return;
+    }
+
+    logger.info("Cluster view updated; received {} nodes", clusterNodeInfo.size());
+
+    for (Node node : clusterNodeInfo.keySet()) {
+      NodeInformation info = clusterNodeInfo.get(node);
+      if (clientPool.containsKey(node) && info.getStatus() == NodeInformation.Status.DEAD) {
+        try {
+          removeNode(node);
+        } catch (NodeNotInRingException ex) {
+          // Should never throw this because we check if client.contains it
+        }
+      } else if (!clientPool.containsKey(node) && info.getStatus() == NodeInformation.Status.ALIVE) {
+        try {
+          addNode(node);
+        } catch (NodeAlreadyInRingException ex) {
+          // Should never throw this because we check if client.contains it
+        }
+      }
+    }
   }
 
 }
