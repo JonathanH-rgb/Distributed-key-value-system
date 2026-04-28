@@ -21,6 +21,7 @@ import com.kvstore.common.NodeInformation;
 import com.kvstore.common.exceptions.EmptyHardcodedNodesListException;
 import com.kvstore.server.ClusterConfig;
 import com.kvstore.server.KVServer;
+import com.kvstore.storage.InMemoryStore;
 
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
@@ -67,7 +68,7 @@ public class SeverGossipsIntegrationTest {
       // timeout=1, delay=0, freq=1, maxAttempts=3
       ClusterConfig testConfig = new ClusterConfig(NUMBER_OF_SERVERS - 1, 1, 0, 1, 3);
       kvServers[i] = new KVServer(nodes[i].gethost(), nodes[i].getport(),
-          otherNodes, new TestGossipClientFactory(), testConfig);
+          otherNodes, new TestGossipClientFactory(), testConfig, new InMemoryStore());
       servers[i] = InProcessServerBuilder
           .forName(serverNames[i])
           .addService(kvServers[i])
@@ -156,7 +157,7 @@ public class SeverGossipsIntegrationTest {
         .toArray(Node[]::new);
     ClusterConfig testConfig = new ClusterConfig(3, 1, 0, 1, 2);
     kvServers[index] = new KVServer(nodes[index].gethost(), nodes[index].getport(),
-        otherNodes, new TestGossipClientFactory(), testConfig);
+        otherNodes, new TestGossipClientFactory(), testConfig, new InMemoryStore());
     servers[index] = InProcessServerBuilder
         .forName(serverNames[index])
         .addService(kvServers[index])
