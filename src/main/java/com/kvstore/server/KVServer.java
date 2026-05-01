@@ -232,7 +232,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public void viewCluster(ClusterViewRequest request, StreamObserver<ClusterViewResponse> responseObserver) {
     try {
 
-      // Format this node info to send to requesting node
       List<com.kvstore.proto.KVStoreProto.NodeInformation> responseNodes = createProtoNodeInformationWithNodeInformation(
           nodeToNodeInformationMap);
 
@@ -241,7 +240,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
           .build();
 
       logger.info("Cluster view requested; responding with {} nodes", responseNodes.size());
-      // Send info
       responseObserver.onNext(clusterViewResponse);
       responseObserver.onCompleted();
     } catch (Exception ex) {
@@ -250,24 +248,24 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     }
   }
 
-  private NodeInformation compareNodeInfo(NodeInformation a, NodeInformation b) {
-    boolean differentIncarnationNumber = a.getIncarnationNumber() != b.getIncarnationNumber();
-    if (differentIncarnationNumber) {
-      return a.getIncarnationNumber() > b.getIncarnationNumber() ? a : b;
+  private void checkIfNewIncarnationNumberIsHigherAndResetFailures(Node node, NodeInformation incoming) {
+    NodeInformation current = nodeToNodeInformationMap.get(node);
+    if (incoming.getIncarnationNumber() > current.getIncarnationNumber()) {
+      nodeToFailedGossipAttemps.put(node, 0);
+      nodeToGossipClientMap.remove(node);
     }
-    boolean differentHeartBeatNumber = a.getHeartBeatCounter() != b.getHeartBeatCounter();
-    if (differentHeartBeatNumber) {
-      return a.getHeartBeatCounter() > b.getHeartBeatCounter() ? a : b;
+  }
+
+  private boolean isNodeInfoNewerThanCurrent(Node node, NodeInformation incoming) {
+    NodeInformation current = nodeToNodeInformationMap.get(node);
+    if (incoming.getIncarnationNumber() > current.getIncarnationNumber()) {
+      return true;
     }
-    boolean firstAlive = a.getStatus().equals(NodeInformation.Status.ALIVE);
-    boolean secondAlive = b.getStatus().equals(NodeInformation.Status.ALIVE);
-    if (firstAlive && !secondAlive) {
-      return b;
+    if (incoming.getIncarnationNumber() == current.getIncarnationNumber()
+        && incoming.getHeartBeatCounter() > current.getHeartBeatCounter()) {
+      return true;
     }
-    if (!firstAlive && secondAlive) {
-      return a;
-    }
-    return a;
+    return false;
   }
 
   @Override
@@ -282,7 +280,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
             protoNode.getHeartBeatCounter(),
             protoNode.getIncarnationNumber());
         nodeToNodeInformationMap.merge(node, incoming,
-            (existing, newVal) -> compareNodeInfo(existing, newVal));
+            (existing, newVal) -> isNodeInfoNewerThanCurrent(node, newVal) ? newVal : existing);
       });
 
       // Format this node info to send to requesting node
@@ -375,12 +373,15 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   private void mergeGossipResponses(List<HashMap<Node, NodeInformation>> responses) {
     for (HashMap<Node, NodeInformation> response : responses) {
       for (Node node : response.keySet()) {
+        NodeInformation incoming = response.get(node);
         if (!nodeToNodeInformationMap.containsKey(node)) {
-          nodeToNodeInformationMap.put(node, response.get(node));
+          nodeToNodeInformationMap.put(node, incoming);
           logger.info("Discovered new node {} via gossip; added to cluster view", node);
         } else {
-          NodeInformation merged = compareNodeInfo(nodeToNodeInformationMap.get(node), response.get(node));
-          nodeToNodeInformationMap.put(node, merged);
+          checkIfNewIncarnationNumberIsHigherAndResetFailures(node, incoming);
+          if (isNodeInfoNewerThanCurrent(node, incoming)) {
+            nodeToNodeInformationMap.put(node, incoming);
+          }
         }
       }
     }
