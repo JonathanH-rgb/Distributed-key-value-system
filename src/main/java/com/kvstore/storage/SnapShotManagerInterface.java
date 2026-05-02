@@ -8,7 +8,6 @@ import com.kvstore.common.exceptions.SnapshotCouldNotWriteException;
 
 /**
  * Contract for snapshot management.
- * Abstracts snapshot writing and recovery so implementations can be swapped in tests.
  */
 public interface SnapShotManagerInterface {
 

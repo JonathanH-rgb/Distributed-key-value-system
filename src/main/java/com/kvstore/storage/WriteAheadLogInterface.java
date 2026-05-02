@@ -9,7 +9,6 @@ import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
 
 /**
  * Contract for a write-ahead log.
- * Abstracts the WAL so implementations can be swapped in tests without touching the filesystem.
  */
 public interface WriteAheadLogInterface {
 

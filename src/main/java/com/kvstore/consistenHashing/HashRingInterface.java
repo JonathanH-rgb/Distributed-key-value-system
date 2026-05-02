@@ -10,7 +10,6 @@ import com.kvstore.common.exceptions.NotEnoughNodesException;
 
 /**
  * Contract for a consistent hash ring.
- * Maps keys to a set of responsible nodes using virtual nodes to distribute load evenly.
  */
 public interface HashRingInterface {
 
