@@ -21,14 +21,12 @@ public class DurableStorageEngine implements StorageEngine {
   private static final Logger logger = LoggerFactory.getLogger(DurableStorageEngine.class);
 
   private Map<String, VersionedValue> memoryStorage = new ConcurrentHashMap<>();
-  private WriteAheadLog writeAheadLog;
+  private final WriteAheadLogInterface writeAheadLog;
+  private final SnapShotManagerInterface snapShotManager;
 
-  public DurableStorageEngine() throws StorageException {
-    try {
-      writeAheadLog = new WriteAheadLog("a");
-    } catch (WALCouldNotOpenLogFileException ex) {
-      throw new StorageException("Failed to initialize storage engine", ex);
-    }
+  public DurableStorageEngine(WriteAheadLogInterface writeAheadLog, SnapShotManagerInterface snapShotManager) {
+    this.writeAheadLog = writeAheadLog;
+    this.snapShotManager = snapShotManager;
   }
 
   public Optional<VersionedValue> get(String key) {

@@ -25,7 +25,7 @@ import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
  * applied to memory.
  * On startup, the log can be replayed to recover state after a crash.
  */
-public class WriteAheadLog {
+public class WriteAheadLog implements WriteAheadLogInterface {
 
   private static final Logger logger = LoggerFactory.getLogger(WriteAheadLog.class);
 

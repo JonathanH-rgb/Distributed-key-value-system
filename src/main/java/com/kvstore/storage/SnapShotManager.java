@@ -26,7 +26,7 @@ import java.util.stream.Stream;
  * On recovery, the snapshot is loaded first, then only WAL entries newer
  * than the snapshot timestamp need to be replayed.
  */
-public class SnapShotManager {
+public class SnapShotManager implements SnapShotManagerInterface {
   private static final Logger logger = LoggerFactory.getLogger(SnapShotManager.class);
   private final Path tmpPath;
   private final Path persistedPath;
