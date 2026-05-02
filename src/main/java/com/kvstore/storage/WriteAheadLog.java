@@ -36,12 +36,13 @@ public class WriteAheadLog {
 
   private final BufferedWriter writer;
   private final Path logPath;
+  public final static String FILE_NAME = "wal.log";
 
   public WriteAheadLog(String fileDir) throws WALCouldNotOpenLogFileException {
     if (fileDir.charAt(fileDir.length() - 1) == '/') {
-      logPath = Path.of(fileDir + "wal.log");
+      logPath = Path.of(fileDir + FILE_NAME);
     } else {
-      logPath = Path.of(fileDir + "/wal.log");
+      logPath = Path.of(fileDir + "/" + FILE_NAME);
     }
     try {
       writer = Files.newBufferedWriter(logPath, StandardOpenOption.CREATE,
