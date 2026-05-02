@@ -7,16 +7,22 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.WALCouldNotCloseLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
+import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
 
 /**
- * Append-only log that records every write operation to disk before it is applied to memory.
+ * Append-only log that records every write operation to disk before it is
+ * applied to memory.
  * On startup, the log can be replayed to recover state after a crash.
  */
 public class WriteAheadLog {
@@ -86,6 +92,30 @@ public class WriteAheadLog {
       throw new WALCouldNotWriteToLogFileException(
           "Failed to write to WAL file at " + logPath + " for operation=" + Operation.DELETE + " key=" + key, ex);
     }
+  }
+
+  public Map<String, VersionedValue> recover() throws WALCouldNotReadLogFileException {
+    Map<String, VersionedValue> memoryStorage = new ConcurrentHashMap<>();
+    try (Stream<String> lines = Files.lines(logPath)) {
+      lines.forEach(line -> {
+        String[] parts = line.split("\\|");
+        Operation operation = Operation.DELETE.toString().equals(parts[1]) ? Operation.DELETE : Operation.PUT;
+        String key = parts[2];
+        if (operation.equals(Operation.DELETE)) {
+          memoryStorage.remove(key);
+          logger.debug("WAL recovery: DELETE key={}", key);
+        } else {
+          byte[] value = Base64.getDecoder().decode(parts[3]);
+          long version = Long.parseLong(parts[4]);
+          memoryStorage.put(key, new VersionedValue(value, version));
+          logger.debug("WAL recovery: PUT key={} version={}", key, version);
+        }
+      });
+    } catch (IOException ex) {
+      throw new WALCouldNotReadLogFileException("Failed to read WAL file at " + logPath, ex);
+    }
+    logger.info("WAL recovery complete; recovered {} keys from {}", memoryStorage.size(), logPath);
+    return memoryStorage;
   }
 
 }
