@@ -95,11 +95,15 @@ public class WriteAheadLog implements WriteAheadLogInterface {
     }
   }
 
-  public Map<String, VersionedValue> recover() throws WALCouldNotReadLogFileException {
+  public Map<String, VersionedValue> recover(long since) throws WALCouldNotReadLogFileException {
     Map<String, VersionedValue> memoryStorage = new ConcurrentHashMap<>();
     try (Stream<String> lines = Files.lines(logPath)) {
       lines.forEach(line -> {
         String[] parts = line.split("\\|");
+        long time = Long.parseLong(parts[0]);
+        if (time < since) {
+          return;
+        }
         Operation operation = Operation.DELETE.toString().equals(parts[1]) ? Operation.DELETE : Operation.PUT;
         String key = parts[2];
         if (operation.equals(Operation.DELETE)) {

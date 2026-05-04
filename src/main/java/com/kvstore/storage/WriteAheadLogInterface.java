@@ -16,7 +16,7 @@ public interface WriteAheadLogInterface {
 
   void writeDelete(String key) throws WALCouldNotWriteToLogFileException;
 
-  Map<String, VersionedValue> recover() throws WALCouldNotReadLogFileException;
+  Map<String, VersionedValue> recover(long since) throws WALCouldNotReadLogFileException;
 
   void shutdown() throws WALCouldNotCloseLogFileException;
 
