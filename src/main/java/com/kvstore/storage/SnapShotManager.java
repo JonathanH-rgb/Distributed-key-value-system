@@ -70,6 +70,7 @@ public class SnapShotManager implements SnapShotManagerInterface {
   }
 
   public Map<String, VersionedValue> recover() throws SnapshotCouldNotReadException {
+    logger.info("Trying to recover snapshot from {}", persistedPath);
     Map<String, VersionedValue> map = new ConcurrentHashMap<>();
     try (Stream<String> lines = Files.lines(persistedPath)) {
       lines.skip(1).forEach(line -> {
@@ -87,6 +88,17 @@ public class SnapShotManager implements SnapShotManagerInterface {
     }
     logger.info("Snapshot recovery complete; recovered {} keys from {}", map.size(), persistedPath);
     return map;
+  }
+
+  public long latestSnapshotTime() throws SnapshotCouldNotReadException {
+    long time;
+    logger.info("Trying to get latest snapshot time from {}", persistedPath);
+    try (Stream<String> lines = Files.lines(persistedPath)) {
+      time = Long.parseLong(lines.findFirst().get());
+    } catch (IOException ex) {
+      throw new SnapshotCouldNotReadException("Failed to read snapshot from " + persistedPath, ex);
+    }
+    return time;
   }
 
 }

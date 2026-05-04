@@ -15,4 +15,6 @@ public interface SnapShotManagerInterface {
 
   Map<String, VersionedValue> recover() throws SnapshotCouldNotReadException;
 
+  long latestSnapshotTime() throws SnapshotCouldNotReadException;
+
 }
