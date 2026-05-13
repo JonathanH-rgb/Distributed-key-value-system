@@ -5,6 +5,7 @@ import java.util.Map;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.WALCouldNotCloseLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
+import com.kvstore.common.exceptions.WALCouldNotTruncateException;
 import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
 
 /**
@@ -19,5 +20,7 @@ public interface WriteAheadLogInterface {
   Map<String, VersionedValue> recover(long since) throws WALCouldNotReadLogFileException;
 
   void shutdown() throws WALCouldNotCloseLogFileException;
+
+  void truncate() throws WALCouldNotTruncateException;
 
 }

@@ -18,6 +18,7 @@ import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.WALCouldNotCloseLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
+import com.kvstore.common.exceptions.WALCouldNotTruncateException;
 import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
 
 /**
@@ -34,22 +35,47 @@ public class WriteAheadLog implements WriteAheadLogInterface {
     DELETE
   }
 
-  private final BufferedWriter writer;
+  private BufferedWriter writer;
   private final Path logPath;
+  private final String fileDir;
   public final static String FILE_NAME = "wal.log";
 
   public WriteAheadLog(String fileDir) throws WALCouldNotOpenLogFileException {
     if (fileDir.charAt(fileDir.length() - 1) == '/') {
-      logPath = Path.of(fileDir + FILE_NAME);
+      this.fileDir = fileDir;
     } else {
-      logPath = Path.of(fileDir + "/" + FILE_NAME);
+      this.fileDir = fileDir + "/";
     }
+    logPath = Path.of(fileDir + FILE_NAME);
+    openWriter();
+  }
+
+  private void openWriter() throws WALCouldNotOpenLogFileException {
     try {
       writer = Files.newBufferedWriter(logPath, StandardOpenOption.CREATE,
           StandardOpenOption.APPEND);
       logger.info("WAL opened at {}", logPath);
     } catch (IOException ex) {
       throw new WALCouldNotOpenLogFileException("Failed to open WAL file at " + logPath, ex);
+    }
+  }
+
+  public void truncate() throws WALCouldNotTruncateException {
+    try {
+      shutdown();
+    } catch (WALCouldNotCloseLogFileException ex) {
+      throw new WALCouldNotTruncateException("Failed to truncate WAL: could not close writer at " + logPath, ex);
+    }
+    try {
+      Files.delete(logPath);
+      logger.info("WAL truncated at {}", logPath);
+    } catch (IOException ex) {
+      throw new WALCouldNotTruncateException("Failed to truncate WAL: could not delete file at " + logPath, ex);
+    }
+    try {
+      openWriter();
+    } catch (WALCouldNotOpenLogFileException ex) {
+      throw new WALCouldNotTruncateException("Failed to truncate WAL: could not reopen writer at " + logPath, ex);
     }
   }
 
