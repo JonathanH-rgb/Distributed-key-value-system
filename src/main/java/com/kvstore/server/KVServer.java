@@ -70,7 +70,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public final int MAX_GOSSIP_ATTEMPS;
 
   public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory,
-      ClusterConfig config) throws EmptyHardcodedNodesListException {
+      ClusterConfig config, StorageEngine storageEngine) throws EmptyHardcodedNodesListException {
 
     if (hardcodeNodes.length == 0) {
       throw new EmptyHardcodedNodesListException("Provided hardcoded nodes list can not be empty");
@@ -81,7 +81,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     nodeToGossipClientMap = new ConcurrentHashMap<>();
 
     this.serverNode = new Node(serverHost, serverPort);
-    this.storageEngine = new InMemoryStore();
+    this.storageEngine = storageEngine;
     this.gossipClientFactory = gossipClientFactory;
     this.FANOUT_FACTOR = config.FANOUT_FACTOR;
     this.GOSSIP_TIMEOUT_SECS = config.GOSSIP_TIMEOUT_SECS;
@@ -89,11 +89,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     this.GOSSIP_OTHER_SERVERS_FREQ_SECS = config.GOSSIP_OTHER_SERVERS_FREQ_SECS;
     this.MAX_GOSSIP_ATTEMPS = config.MAX_GOSSIP_ATTEMPS;
     populateHardcodedNodes(hardcodeNodes);
-  }
-
-  public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory)
-      throws EmptyHardcodedNodesListException, IOException {
-    this(serverHost, serverPort, hardcodeNodes, gossipClientFactory, new ClusterConfig());
   }
 
   public KVServer() {
@@ -237,7 +232,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public void viewCluster(ClusterViewRequest request, StreamObserver<ClusterViewResponse> responseObserver) {
     try {
 
-      // Format this node info to send to requesting node
       List<com.kvstore.proto.KVStoreProto.NodeInformation> responseNodes = createProtoNodeInformationWithNodeInformation(
           nodeToNodeInformationMap);
 
@@ -246,7 +240,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
           .build();
 
       logger.info("Cluster view requested; responding with {} nodes", responseNodes.size());
-      // Send info
       responseObserver.onNext(clusterViewResponse);
       responseObserver.onCompleted();
     } catch (Exception ex) {
@@ -255,24 +248,24 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     }
   }
 
-  private NodeInformation compareNodeInfo(NodeInformation a, NodeInformation b) {
-    boolean differentIncarnationNumber = a.getIncarnationNumber() != b.getIncarnationNumber();
-    if (differentIncarnationNumber) {
-      return a.getIncarnationNumber() > b.getIncarnationNumber() ? a : b;
+  private void checkIfNewIncarnationNumberIsHigherAndResetFailures(Node node, NodeInformation incoming) {
+    NodeInformation current = nodeToNodeInformationMap.get(node);
+    if (incoming.getIncarnationNumber() > current.getIncarnationNumber()) {
+      nodeToFailedGossipAttemps.put(node, 0);
+      nodeToGossipClientMap.remove(node);
     }
-    boolean differentHeartBeatNumber = a.getHeartBeatCounter() != b.getHeartBeatCounter();
-    if (differentHeartBeatNumber) {
-      return a.getHeartBeatCounter() > b.getHeartBeatCounter() ? a : b;
+  }
+
+  private boolean isNodeInfoNewerThanCurrent(Node node, NodeInformation incoming) {
+    NodeInformation current = nodeToNodeInformationMap.get(node);
+    if (incoming.getIncarnationNumber() > current.getIncarnationNumber()) {
+      return true;
     }
-    boolean firstAlive = a.getStatus().equals(NodeInformation.Status.ALIVE);
-    boolean secondAlive = b.getStatus().equals(NodeInformation.Status.ALIVE);
-    if (firstAlive && !secondAlive) {
-      return b;
+    if (incoming.getIncarnationNumber() == current.getIncarnationNumber()
+        && incoming.getHeartBeatCounter() > current.getHeartBeatCounter()) {
+      return true;
     }
-    if (!firstAlive && secondAlive) {
-      return a;
-    }
-    return a;
+    return false;
   }
 
   @Override
@@ -287,7 +280,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
             protoNode.getHeartBeatCounter(),
             protoNode.getIncarnationNumber());
         nodeToNodeInformationMap.merge(node, incoming,
-            (existing, newVal) -> compareNodeInfo(existing, newVal));
+            (existing, newVal) -> isNodeInfoNewerThanCurrent(node, newVal) ? newVal : existing);
       });
 
       // Format this node info to send to requesting node
@@ -307,90 +300,88 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   }
 
   private void gossipOtherRandomServers() {
-
-    // Increase my counter before sending messages
     long newHeartBeat = nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1;
     nodeToNodeInformationMap.get(serverNode).setHeartBeatCounter(newHeartBeat);
     logger.debug("Incremented heartbeat counter for {} to {}", serverNode, newHeartBeat);
+    List<Node> targets = selectGossipTargets();
+    targets.forEach(n -> {
+      if (!nodeToGossipClientMap.containsKey(n)) {
+        nodeToGossipClientMap.put(n, gossipClientFactory.create(n.gethost(), n.getport()));
+      }
+    });
+    List<HashMap<Node, NodeInformation>> responses = exchangeGossipWithTargets(targets);
+    mergeGossipResponses(responses);
+  }
 
-    // select random nodes safely
-    // As you can see we only gossip alive servers, so how can we know when a dead
-    // one is back?
-    // Well when a dead one is back it will include itself as alive to this list and
-    // start communicating
-    // it's status to other servers
+  // We only gossip to non-dead servers. Dead ones re-enter the cluster by
+  // announcing themselves as alive via their own gossip rounds.
+  private List<Node> selectGossipTargets() {
     List<Node> aliveNodes = new ArrayList<>(nodeToNodeInformationMap.keySet())
         .stream().filter(n -> nodeToNodeInformationMap.get(n).getStatus() != NodeInformation.Status.DEAD)
         .collect(Collectors.toList());
     Collections.shuffle(aliveNodes);
-    List<Node> selectedNodes = aliveNodes.subList(0, Math.min(FANOUT_FACTOR, aliveNodes.size()));
+    List<Node> targets = aliveNodes.subList(0, Math.min(FANOUT_FACTOR, aliveNodes.size()));
+    logger.debug("Starting gossip round; selected {} target nodes", targets.size());
+    return targets;
+  }
 
-    logger.debug("Starting gossip round; selected {} target nodes", selectedNodes.size());
+  private List<HashMap<Node, NodeInformation>> exchangeGossipWithTargets(List<Node> targets) {
+    List<HashMap<Node, NodeInformation>> responses = new ArrayList<>();
+    HashMap<Future<HashMap<Node, NodeInformation>>, Node> futureToNode = new HashMap<>();
 
-    // Make sure nodes have gossip client, if not create
-    selectedNodes.stream().forEach(n -> {
-      if (!nodeToGossipClientMap.containsKey(n)) {
-        GossipClient gossipClient = gossipClientFactory.create(n.gethost(), n.getport());
-        nodeToGossipClientMap.put(n, gossipClient);
-      }
-    });
-
-    List<HashMap<Node, NodeInformation>> gossipMessages = new ArrayList<>();
-
-    // Async request to other nodes
-    HashMap<Future<HashMap<Node, NodeInformation>>, Node> futureToNodeMap = new HashMap<>();
     try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      List<Future<HashMap<Node, NodeInformation>>> futures = selectedNodes
-          .stream()
+      List<Future<HashMap<Node, NodeInformation>>> futures = targets.stream()
           .map(n -> executor.submit(() -> {
-            GossipClient client = nodeToGossipClientMap.get(n);
-            HashMap<Node, NodeInformation> normalMap = new HashMap<>(nodeToNodeInformationMap);
-            return client.gossip(normalMap);
+            HashMap<Node, NodeInformation> snapshot = new HashMap<>(nodeToNodeInformationMap);
+            return nodeToGossipClientMap.get(n).gossip(snapshot);
           }))
           .collect(Collectors.toList());
 
-      // Is same order? I think yes but might be a problem in future
       for (int i = 0; i < futures.size(); i++) {
-        futureToNodeMap.put(futures.get(i), selectedNodes.get(i));
+        futureToNode.put(futures.get(i), targets.get(i));
       }
 
-      // Unpack into list
       for (Future<HashMap<Node, NodeInformation>> future : futures) {
-        Node node = futureToNodeMap.get(future);
+        Node node = futureToNode.get(future);
         try {
-          gossipMessages.add(future.get(GOSSIP_TIMEOUT_SECS, TimeUnit.SECONDS));
+          responses.add(future.get(GOSSIP_TIMEOUT_SECS, TimeUnit.SECONDS));
           nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.ALIVE);
-          if (nodeToFailedGossipAttemps.containsKey(node)) {
-            nodeToFailedGossipAttemps.put(node, 0);
-          }
+          nodeToFailedGossipAttemps.put(node, 0);
         } catch (InterruptedException ex) {
           Thread.currentThread().interrupt();
           break;
         } catch (TimeoutException | ExecutionException ex) {
-          int failedAttempts = nodeToFailedGossipAttemps.getOrDefault(node, 0) + 1;
-          nodeToFailedGossipAttemps.put(node, failedAttempts);
-          logger.warn("Gossip to node {} failed (attempt {}/{})", node, failedAttempts, MAX_GOSSIP_ATTEMPS);
-          if (nodeToFailedGossipAttemps.get(node) >= MAX_GOSSIP_ATTEMPS) {
-            nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.DEAD);
-            logger.warn("Node {} marked as DEAD after {} failed gossip attempts", node, failedAttempts);
-          } else {
-            nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.SUSPECT);
-          }
+          handleGossipFailure(node);
         }
       }
     }
+    return responses;
+  }
 
-    // Iterate over responses, update node information in this server with gossips
-    for (HashMap<Node, NodeInformation> message : gossipMessages) {
-      for (Node currentNode : message.keySet()) {
-        NodeInformation currentNodeInfo = message.get(currentNode);
-        if (!nodeToNodeInformationMap.containsKey(currentNode)) {
-          nodeToNodeInformationMap.put(currentNode, currentNodeInfo);
-          logger.info("Discovered new node {} via gossip; added to cluster view", currentNode);
+  private void handleGossipFailure(Node node) {
+    int failedAttempts = nodeToFailedGossipAttemps.getOrDefault(node, 0) + 1;
+    nodeToFailedGossipAttemps.put(node, failedAttempts);
+    logger.warn("Gossip to node {} failed (attempt {}/{})", node, failedAttempts, MAX_GOSSIP_ATTEMPS);
+    if (failedAttempts >= MAX_GOSSIP_ATTEMPS) {
+      nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.DEAD);
+      logger.warn("Node {} marked as DEAD after {} failed gossip attempts", node, failedAttempts);
+    } else {
+      nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.SUSPECT);
+    }
+  }
+
+  private void mergeGossipResponses(List<HashMap<Node, NodeInformation>> responses) {
+    for (HashMap<Node, NodeInformation> response : responses) {
+      for (Node node : response.keySet()) {
+        NodeInformation incoming = response.get(node);
+        if (!nodeToNodeInformationMap.containsKey(node)) {
+          nodeToNodeInformationMap.put(node, incoming);
+          logger.info("Discovered new node {} via gossip; added to cluster view", node);
         } else {
-          NodeInformation mostRecentInfo = compareNodeInfo(nodeToNodeInformationMap.get(currentNode),
-              message.get(currentNode));
-          nodeToNodeInformationMap.put(currentNode, mostRecentInfo);
+          checkIfNewIncarnationNumberIsHigherAndResetFailures(node, incoming);
+          if (isNodeInfoNewerThanCurrent(node, incoming)) {
+            nodeToNodeInformationMap.put(node, incoming);
+          }
         }
       }
     }

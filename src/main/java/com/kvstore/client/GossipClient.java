@@ -16,6 +16,10 @@ import io.grpc.ManagedChannelBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * gRPC client for sending gossip messages to other nodes.
+ * Serializes the local cluster view, sends it to a peer, and returns the peer's view.
+ */
 public class GossipClient {
 
   private static final Logger logger = LoggerFactory.getLogger(GossipClient.class);

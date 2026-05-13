@@ -8,6 +8,9 @@ import com.kvstore.common.exceptions.NodeAlreadyInRingException;
 import com.kvstore.common.exceptions.NodeNotInRingException;
 import com.kvstore.common.exceptions.NotEnoughNodesException;
 
+/**
+ * Contract for a consistent hash ring.
+ */
 public interface HashRingInterface {
 
   public void addNode(final Node node) throws NodeAlreadyInRingException;

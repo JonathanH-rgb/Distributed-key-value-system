@@ -1,5 +1,11 @@
 package com.kvstore.common;
 
+/**
+ * Holds the gossip state for a single node in the cluster.
+ * Tracks liveness status, heartbeat counter, and incarnation number.
+ * Incarnation number is set to the node's startup timestamp and is used to
+ * distinguish a restarted node from a stale entry with a higher heartbeat.
+ */
 public class NodeInformation {
 
   public static enum Status {
