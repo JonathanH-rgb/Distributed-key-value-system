@@ -12,6 +12,7 @@ import com.kvstore.common.exceptions.SnapshotCouldNotReadException;
 import com.kvstore.common.exceptions.SnapshotCouldNotWriteException;
 import com.kvstore.common.exceptions.StorageException;
 import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
+import com.kvstore.common.exceptions.WALCouldNotTruncateException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,13 +52,15 @@ public class DurableStorageEngine implements StorageEngine {
     }
   }
 
-  public void start() throws StorageException {
+  public void start()
+      throws StorageException {
     recover();
     ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_SNAPSHOT);
     scheduler.scheduleAtFixedRate(() -> {
       try {
         snapShotManager.snapshot(memoryStorage);
-      } catch (SnapshotCouldNotWriteException ex) {
+        writeAheadLog.truncate();
+      } catch (SnapshotCouldNotWriteException | WALCouldNotTruncateException ex) {
         logger.error("Snapshot failed ", ex);
       }
     }, SNAPSHOT_LOOP_DELAY_SECS,
