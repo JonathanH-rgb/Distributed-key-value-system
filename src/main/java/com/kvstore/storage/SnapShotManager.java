@@ -91,14 +91,15 @@ public class SnapShotManager implements SnapShotManagerInterface {
   }
 
   public long latestSnapshotTime() throws SnapshotCouldNotReadException {
-    long time;
     logger.info("Trying to get latest snapshot time from {}", persistedPath);
     try (Stream<String> lines = Files.lines(persistedPath)) {
-      time = Long.parseLong(lines.findFirst().get());
+      return Long.parseLong(lines.findFirst().get());
+    } catch (NoSuchFileException ex) {
+      logger.info("No snapshot file found at {}, returning 0", persistedPath);
+      return 0;
     } catch (IOException ex) {
       throw new SnapshotCouldNotReadException("Failed to read snapshot from " + persistedPath, ex);
     }
-    return time;
   }
 
 }
