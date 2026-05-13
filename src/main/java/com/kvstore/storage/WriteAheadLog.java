@@ -127,7 +127,7 @@ public class WriteAheadLog implements WriteAheadLogInterface {
       lines.forEach(line -> {
         String[] parts = line.split("\\|");
         long time = Long.parseLong(parts[0]);
-        if (time < since) {
+        if (time <= since) {
           return;
         }
         Operation operation = Operation.DELETE.toString().equals(parts[1]) ? Operation.DELETE : Operation.PUT;

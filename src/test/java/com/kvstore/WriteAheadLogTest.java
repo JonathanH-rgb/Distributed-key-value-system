@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
 import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
+import com.kvstore.common.exceptions.WALCouldNotTruncateException;
 import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
 import com.kvstore.storage.WriteAheadLog;
 
@@ -64,7 +65,9 @@ public class WriteAheadLogTest {
     byte[] value3 = "value3".getBytes();
     long version3 = 3L;
     wal.writePut(key3, value3, version3);
+    Thread.sleep(1); // ensure after is after first val
     long after = Instant.now().toEpochMilli();
+    Thread.sleep(1); // ensure after is before other vals
     String key1 = "key1";
     byte[] value1 = "value1".getBytes();
     long version1 = 1L;
@@ -74,7 +77,7 @@ public class WriteAheadLogTest {
     long version2 = 2L;
     wal.writePut(key2, value2, version2);
     Map<String, VersionedValue> result = wal.recover(after);
-    assertEquals(result.size(), 2);
+    assertEquals(2, result.size());
     assertTrue(result.containsKey(key1));
     assertTrue(result.containsKey(key2));
     assertArrayEquals(result.get(key1).getBytes(), value1);
@@ -82,6 +85,28 @@ public class WriteAheadLogTest {
     assertEquals(result.get(key1).getVersion(), version1);
     assertEquals(result.get(key2).getVersion(), version2);
     assertFalse(result.containsKey(key3));
+  }
+
+  @Test
+  public void truncateShouldClearAllEntriesFromLog()
+      throws WALCouldNotWriteToLogFileException, WALCouldNotTruncateException, WALCouldNotReadLogFileException {
+    wal.writePut("key1", "value1".getBytes(), 1L);
+    wal.writePut("key2", "value2".getBytes(), 2L);
+    wal.truncate();
+    Map<String, VersionedValue> result = wal.recover(0L);
+    assertEquals(0, result.size());
+  }
+
+  @Test
+  public void truncateShouldAllowWritesAfterTruncation()
+      throws WALCouldNotWriteToLogFileException, WALCouldNotTruncateException, WALCouldNotReadLogFileException {
+    wal.writePut("key1", "value1".getBytes(), 1L);
+    wal.truncate();
+    wal.writePut("key2", "value2".getBytes(), 2L);
+    Map<String, VersionedValue> result = wal.recover(0L);
+    assertEquals(1, result.size());
+    assertTrue(result.containsKey("key2"));
+    assertFalse(result.containsKey("key1"));
   }
 
   @Test
