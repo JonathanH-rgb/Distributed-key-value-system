@@ -80,40 +80,16 @@ public class ClusterClient {
   }
 
   public Optional<VersionedValue> getValue(final String key) {
-
     logger.debug("GET request for key '{}'", key);
 
     final HashSet<Node> nodes;
-    List<Optional<VersionedValue>> results = new ArrayList<>();
-
     try {
-      nodes = hashRing.determineNodesForKey(key,
-          PARTITION_FACTOR);
+      nodes = hashRing.determineNodesForKey(key, PARTITION_FACTOR);
     } catch (final NotEnoughNodesException ex) {
       return Optional.empty();
     }
 
-    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      List<Future<Optional<VersionedValue>>> futures = nodes.stream()
-          .map(node -> executor.submit(() -> clientPool.get(node).get(key)))
-          .collect(Collectors.toList());
-
-      for (Future<Optional<VersionedValue>> future : futures) {
-        try {
-
-          results.add(future.get(TIMEOUT_LIMIT_SECS_GET, TimeUnit.SECONDS));
-
-        } catch (InterruptedException ex) {
-
-          Thread.currentThread().interrupt();
-          break;
-
-        } catch (TimeoutException | ExecutionException ex) {
-          logger.error("GET request for key '{}' failed on one node", key, ex);
-        }
-      }
-
-    }
+    Map<Node, Optional<VersionedValue>> results = queryNodes(key, nodes);
 
     if (results.size() < READ_CONSENSUS_NUMBER) {
       logger.warn("GET for key '{}' did not meet read consensus: got {} responses, needed {}", key, results.size(),
@@ -121,29 +97,37 @@ public class ClusterClient {
       return Optional.empty();
     }
 
-    int mostRecentIndex = -1;
+    return pickLatestValue(results);
+  }
 
-    for (int i = 0; i < results.size(); i++) {
+  private Map<Node, Optional<VersionedValue>> queryNodes(String key, HashSet<Node> nodes) {
+    Map<Node, Optional<VersionedValue>> results = new HashMap<>();
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      Map<Future<Optional<VersionedValue>>, Node> futureToNode = new HashMap<>();
+      nodes.forEach(node -> futureToNode.put(
+          executor.submit(() -> clientPool.get(node).get(key)), node));
 
-      Optional<VersionedValue> value = results.get(i);
-
-      if (value.isEmpty()) {
-        continue;
-      }
-
-      if (mostRecentIndex == -1) {
-        mostRecentIndex = i;
-      } else if (results.get(mostRecentIndex).get().getVersion() < value.get().getVersion()) {
-        mostRecentIndex = i;
+      for (Map.Entry<Future<Optional<VersionedValue>>, Node> entry : futureToNode.entrySet()) {
+        try {
+          results.put(entry.getValue(), entry.getKey().get(TIMEOUT_LIMIT_SECS_GET, TimeUnit.SECONDS));
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          break;
+        } catch (TimeoutException | ExecutionException ex) {
+          logger.error("GET request for key '{}' failed on node {}", key, entry.getValue(), ex);
+        }
       }
     }
+    return results;
+  }
 
-    if (mostRecentIndex == -1) {
-      return Optional.empty();
-    }
-
-    return Optional.of(results.get(mostRecentIndex).get());
-
+  private Optional<VersionedValue> pickLatestValue(Map<Node, Optional<VersionedValue>> results) {
+    // Here I have the nodes and the VersionedValue, I have to call put and will
+    // upate all
+    return results.values().stream()
+        .filter(Optional::isPresent)
+        .map(Optional::get)
+        .max((a, b) -> Long.compare(a.getVersion(), b.getVersion()));
   }
 
   public void putValue(final String key, final byte[] value, long version)
