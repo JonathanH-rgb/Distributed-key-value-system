@@ -11,7 +11,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -39,6 +38,7 @@ public class ClusterClient {
   private final HashRingInterface hashRing;
   private ConcurrentHashMap<Node, KVClient> clientPool;
   private Map<Node, KVClient> hardcodedNodesToClientMap;
+  private final ExecutorService repairExecutor = Executors.newVirtualThreadPerTaskExecutor();
   // TODO: for now hardcoded, maybe change in the future
   public final int PARTITION_FACTOR = 3;
   public final int READ_CONSENSUS_NUMBER = 2;
@@ -97,7 +97,21 @@ public class ClusterClient {
       return Optional.empty();
     }
 
-    return pickLatestValue(results);
+    Optional<Node> optionalNodeWithHighestVersion = pickNodeWithHighestVersion(results);
+    if (optionalNodeWithHighestVersion.isEmpty()) {
+      return Optional.empty();
+    }
+
+    Node nodeWithHigestVersion = optionalNodeWithHighestVersion.get();
+    VersionedValue value = results.get(nodeWithHigestVersion).get();
+
+    // Take nodes with diff value that latest and update
+    List<Node> nodesWithDifferentValueThanLatest = results.keySet().stream()
+        .filter(node -> !value.equals(results.get(node).orElse(null)))
+        .toList();
+
+    updateOldNodesWithNewValAsync(value, nodesWithDifferentValueThanLatest, key);
+    return Optional.of(value);
   }
 
   private Map<Node, Optional<VersionedValue>> queryNodes(String key, HashSet<Node> nodes) {
@@ -121,13 +135,23 @@ public class ClusterClient {
     return results;
   }
 
-  private Optional<VersionedValue> pickLatestValue(Map<Node, Optional<VersionedValue>> results) {
-    // Here I have the nodes and the VersionedValue, I have to call put and will
-    // upate all
-    return results.values().stream()
-        .filter(Optional::isPresent)
-        .map(Optional::get)
-        .max((a, b) -> Long.compare(a.getVersion(), b.getVersion()));
+  private Optional<Node> pickNodeWithHighestVersion(Map<Node, Optional<VersionedValue>> results) {
+    return results.keySet().stream()
+        .filter(key -> results.get(key).isPresent())
+        .max((keyA, keyB) -> Long.compare(results.get(keyA).get().getVersion(),
+            results.get(keyB).get().getVersion()));
+  }
+
+  private void updateOldNodesWithNewValAsync(VersionedValue latestVal, List<Node> nodesToBeUpdated,
+      String key) {
+    nodesToBeUpdated.forEach(node -> repairExecutor
+        .submit(() -> {
+          try {
+            clientPool.get(node).put(key, latestVal.getBytes(), latestVal.getVersion());
+          } catch (Exception ex) {
+            logger.warn("Read repair failed for key={} node={}", key, node, ex);
+          }
+        }));
   }
 
   public void putValue(final String key, final byte[] value, long version)
@@ -161,11 +185,9 @@ public class ClusterClient {
         logger.warn("PUT for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount,
             WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes updated the value, but "
-            + WRITE_CONSENSUS_NUMBER + " were expected to updated that value");
+            + WRITE_CONSENSUS_NUMBER + " were expected to update that value");
       }
-
     }
-
   }
 
   public void deleteValue(final String key) throws NotEnoughNodesException, WriteConsensusException {
@@ -257,6 +279,11 @@ public class ClusterClient {
         }
       }
     }
+  }
+
+  public void shutdown() {
+    repairExecutor.shutdown();
+    clientPool.values().forEach(client -> client.shutdown());
   }
 
 }
