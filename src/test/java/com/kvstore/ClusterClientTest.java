@@ -14,8 +14,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.kvstore.client.ClientConfig;
 import com.kvstore.client.ClusterClient;
 import com.kvstore.client.KVClient;
+import com.kvstore.server.ClusterConfig;
 import com.kvstore.common.Node;
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.NodeNotInRingException;
@@ -51,9 +53,16 @@ public class ClusterClientTest {
     for (int i = 0; i < NUMBER_OF_SERVERS; i++) {
 
       serverName = "test-server-" + i;
+      Node serverNode = new Node("node" + i, 8080 + i);
+      KVServer kvServer = new KVServer.Builder()
+          .host("node" + i).port(8080 + i)
+          .hardcodedNodes(new Node[]{serverNode})
+          .gossipClientFactory((h, p) -> null)
+          .config(new ClusterConfig(3, 5, 0, 1, 3))
+          .build();
       servers[i] = InProcessServerBuilder
           .forName(serverName)
-          .addService(new KVServer())
+          .addService(kvServer)
           .build()
           .start();
 
@@ -70,7 +79,9 @@ public class ClusterClientTest {
       hashRing.addNode(node);
     }
 
-    clusterClient = new ClusterClient(hashRing, clientPool);
+    // partitionFactor=3, readConsensus=2, writeConsensus=2, timeouts=5s, no refresh loop
+    ClientConfig clientConfig = new ClientConfig(3, 2, 2, 5, 5, 5, 3, 0, 1);
+    clusterClient = new ClusterClient(hashRing, clientPool, clientConfig);
   }
 
   @AfterEach
@@ -124,7 +135,7 @@ public class ClusterClientTest {
     long version = 1L;
     byte[] value = "hello".getBytes();
 
-    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.WRITE_CONSENSUS_NUMBER; i--) {
+    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.config.WRITE_CONSENSUS_NUMBER; i--) {
       servers[i - 1].shutdown();
     }
 
@@ -137,7 +148,7 @@ public class ClusterClientTest {
 
     String key = "key1";
 
-    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.WRITE_CONSENSUS_NUMBER; i--) {
+    for (int i = NUMBER_OF_SERVERS; i >= clusterClient.config.WRITE_CONSENSUS_NUMBER; i--) {
       servers[i - 1].shutdown();
     }
 
