@@ -1,0 +1,53 @@
+package com.kvstore.client;
+
+import java.io.IOException;
+import java.util.Properties;
+
+/**
+ * Configuration for the ClusterClient.
+ * Loaded from client.properties on the classpath in production,
+ * or constructed directly with values for tests.
+ */
+public class ClientConfig {
+
+  public final int PARTITION_FACTOR;
+  public final int READ_CONSENSUS_NUMBER;
+  public final int WRITE_CONSENSUS_NUMBER;
+  public final int TIMEOUT_LIMIT_SECS_GET;
+  public final int TIMEOUT_LIMIT_SECS_DELETE;
+  public final int TIMEOUT_LIMIT_SECS_PUT;
+  public final int REFRESH_RATE_NODE_INFORMATION_SECS;
+  public final int REFRESH_RATE_NODE_INFORMATION_DELAY_SECS;
+  public final int THREADS_RUNNING_REFRESH_LOOP;
+
+  public ClientConfig() throws IOException {
+    Properties properties = new Properties();
+    properties.load(getClass().getClassLoader().getResourceAsStream("client.properties"));
+    PARTITION_FACTOR = Integer.parseInt(properties.getProperty("PARTITION_FACTOR"));
+    READ_CONSENSUS_NUMBER = Integer.parseInt(properties.getProperty("READ_CONSENSUS_NUMBER"));
+    WRITE_CONSENSUS_NUMBER = Integer.parseInt(properties.getProperty("WRITE_CONSENSUS_NUMBER"));
+    TIMEOUT_LIMIT_SECS_GET = Integer.parseInt(properties.getProperty("TIMEOUT_LIMIT_SECS_GET"));
+    TIMEOUT_LIMIT_SECS_DELETE = Integer.parseInt(properties.getProperty("TIMEOUT_LIMIT_SECS_DELETE"));
+    TIMEOUT_LIMIT_SECS_PUT = Integer.parseInt(properties.getProperty("TIMEOUT_LIMIT_SECS_PUT"));
+    REFRESH_RATE_NODE_INFORMATION_SECS = Integer.parseInt(properties.getProperty("REFRESH_RATE_NODE_INFORMATION_SECS"));
+    REFRESH_RATE_NODE_INFORMATION_DELAY_SECS = Integer
+        .parseInt(properties.getProperty("REFRESH_RATE_NODE_INFORMATION_DELAY_SECS"));
+    THREADS_RUNNING_REFRESH_LOOP = Integer.parseInt(properties.getProperty("THREADS_RUNNING_REFRESH_LOOP"));
+  }
+
+  public ClientConfig(int partitionFactor, int readConsensusNumber, int writeConsensusNumber,
+      int timeoutLimitSecsGet, int timeoutLimitSecsDelete, int timeoutLimitSecsPut,
+      int refreshRateNodeInformationSecs, int refreshRateNodeInformationDelaySecs,
+      int threadsRunningRefreshLoop) {
+    this.PARTITION_FACTOR = partitionFactor;
+    this.READ_CONSENSUS_NUMBER = readConsensusNumber;
+    this.WRITE_CONSENSUS_NUMBER = writeConsensusNumber;
+    this.TIMEOUT_LIMIT_SECS_GET = timeoutLimitSecsGet;
+    this.TIMEOUT_LIMIT_SECS_DELETE = timeoutLimitSecsDelete;
+    this.TIMEOUT_LIMIT_SECS_PUT = timeoutLimitSecsPut;
+    this.REFRESH_RATE_NODE_INFORMATION_SECS = refreshRateNodeInformationSecs;
+    this.REFRESH_RATE_NODE_INFORMATION_DELAY_SECS = refreshRateNodeInformationDelaySecs;
+    this.THREADS_RUNNING_REFRESH_LOOP = threadsRunningRefreshLoop;
+  }
+
+}

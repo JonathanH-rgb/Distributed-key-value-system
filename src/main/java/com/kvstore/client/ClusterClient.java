@@ -39,16 +39,7 @@ public class ClusterClient {
   private ConcurrentHashMap<Node, KVClient> clientPool;
   private Map<Node, KVClient> hardcodedNodesToClientMap;
   private final ExecutorService repairExecutor = Executors.newVirtualThreadPerTaskExecutor();
-  // TODO: for now hardcoded, maybe change in the future
-  public final int PARTITION_FACTOR = 3;
-  public final int READ_CONSENSUS_NUMBER = 2;
-  public final int WRITE_CONSENSUS_NUMBER = 2;
-  public final int TIMEOUT_LIMIT_SECS_GET = 5;
-  public final int TIMEOUT_LIMIT_SECS_DELETE = 5;
-  public final int TIMEOUT_LIMIT_SECS_PUT = 5;
-  public final int REFRESH_RATE_NODE_INFORMATION_SECS = 3;
-  public final int REFRESH_RATE_NODE_INFORMATION_DELAY_SECS = 0;
-  public final int THREADS_RUNNING_REFRESH_LOOP = 1;
+  public final ClientConfig config;
 
   private void initHardcodedNodesAndClientPool() {
     // TODO: make this configurable, maybe read from a file
@@ -56,17 +47,20 @@ public class ClusterClient {
     throw new RuntimeException("Implement me");
   }
 
-  public ClusterClient(final HashRingInterface hashRing) {
+  public ClusterClient(final HashRingInterface hashRing, final ClientConfig config) {
     this.hashRing = hashRing;
+    this.config = config;
     initHardcodedNodesAndClientPool();
-    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_REFRESH_LOOP);
-    scheduler.scheduleAtFixedRate(this::updateNodeInformation, REFRESH_RATE_NODE_INFORMATION_DELAY_SECS,
-        REFRESH_RATE_NODE_INFORMATION_SECS,
+    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(config.THREADS_RUNNING_REFRESH_LOOP);
+    scheduler.scheduleAtFixedRate(this::updateNodeInformation, config.REFRESH_RATE_NODE_INFORMATION_DELAY_SECS,
+        config.REFRESH_RATE_NODE_INFORMATION_SECS,
         TimeUnit.SECONDS);
   }
 
-  public ClusterClient(final HashRingInterface hashRing, HashMap<Node, KVClient> hardcodedNodes) {
+  public ClusterClient(final HashRingInterface hashRing, HashMap<Node, KVClient> hardcodedNodes,
+      final ClientConfig config) {
     this.hashRing = hashRing;
+    this.config = config;
     clientPool = new ConcurrentHashMap<>();
     for (Node hardcodedNode : hardcodedNodes.keySet()) {
       clientPool.put(hardcodedNode, hardcodedNodes.get(hardcodedNode));
@@ -84,16 +78,16 @@ public class ClusterClient {
 
     final HashSet<Node> nodes;
     try {
-      nodes = hashRing.determineNodesForKey(key, PARTITION_FACTOR);
+      nodes = hashRing.determineNodesForKey(key, config.PARTITION_FACTOR);
     } catch (final NotEnoughNodesException ex) {
       return Optional.empty();
     }
 
     Map<Node, Optional<VersionedValue>> results = queryNodes(key, nodes);
 
-    if (results.size() < READ_CONSENSUS_NUMBER) {
+    if (results.size() < config.READ_CONSENSUS_NUMBER) {
       logger.warn("GET for key '{}' did not meet read consensus: got {} responses, needed {}", key, results.size(),
-          READ_CONSENSUS_NUMBER);
+          config.READ_CONSENSUS_NUMBER);
       return Optional.empty();
     }
 
@@ -105,7 +99,6 @@ public class ClusterClient {
     Node nodeWithHigestVersion = optionalNodeWithHighestVersion.get();
     VersionedValue value = results.get(nodeWithHigestVersion).get();
 
-    // Take nodes with diff value that latest and update
     List<Node> nodesWithDifferentValueThanLatest = results.keySet().stream()
         .filter(node -> !value.equals(results.get(node).orElse(null)))
         .toList();
@@ -123,7 +116,7 @@ public class ClusterClient {
 
       for (Map.Entry<Future<Optional<VersionedValue>>, Node> entry : futureToNode.entrySet()) {
         try {
-          results.put(entry.getValue(), entry.getKey().get(TIMEOUT_LIMIT_SECS_GET, TimeUnit.SECONDS));
+          results.put(entry.getValue(), entry.getKey().get(config.TIMEOUT_LIMIT_SECS_GET, TimeUnit.SECONDS));
         } catch (InterruptedException ex) {
           Thread.currentThread().interrupt();
           break;
@@ -144,14 +137,13 @@ public class ClusterClient {
 
   private void updateOldNodesWithNewValAsync(VersionedValue latestVal, List<Node> nodesToBeUpdated,
       String key) {
-    nodesToBeUpdated.forEach(node -> repairExecutor
-        .submit(() -> {
-          try {
-            clientPool.get(node).put(key, latestVal.getBytes(), latestVal.getVersion());
-          } catch (Exception ex) {
-            logger.warn("Read repair failed for key={} node={}", key, node, ex);
-          }
-        }));
+    nodesToBeUpdated.forEach(node -> repairExecutor.submit(() -> {
+      try {
+        clientPool.get(node).put(key, latestVal.getBytes(), latestVal.getVersion());
+      } catch (Exception ex) {
+        logger.warn("Read repair failed for key={} node={}", key, node, ex);
+      }
+    }));
   }
 
   public void putValue(final String key, final byte[] value, long version)
@@ -159,8 +151,7 @@ public class ClusterClient {
 
     logger.debug("PUT request for key '{}' at version {}", key, version);
 
-    final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
-        PARTITION_FACTOR);
+    final HashSet<Node> nodes = hashRing.determineNodesForKey(key, config.PARTITION_FACTOR);
 
     try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
 
@@ -171,7 +162,7 @@ public class ClusterClient {
       int successCount = 0;
       for (Future<?> future : futures) {
         try {
-          future.get(TIMEOUT_LIMIT_SECS_PUT, TimeUnit.SECONDS);
+          future.get(config.TIMEOUT_LIMIT_SECS_PUT, TimeUnit.SECONDS);
           successCount++;
         } catch (InterruptedException ex) {
           Thread.currentThread().interrupt();
@@ -181,11 +172,11 @@ public class ClusterClient {
         }
       }
 
-      if (successCount < WRITE_CONSENSUS_NUMBER) {
+      if (successCount < config.WRITE_CONSENSUS_NUMBER) {
         logger.warn("PUT for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount,
-            WRITE_CONSENSUS_NUMBER);
+            config.WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes updated the value, but "
-            + WRITE_CONSENSUS_NUMBER + " were expected to update that value");
+            + config.WRITE_CONSENSUS_NUMBER + " were expected to update that value");
       }
     }
   }
@@ -194,8 +185,7 @@ public class ClusterClient {
 
     logger.debug("DELETE request for key '{}'", key);
 
-    final HashSet<Node> nodes = hashRing.determineNodesForKey(key,
-        PARTITION_FACTOR);
+    final HashSet<Node> nodes = hashRing.determineNodesForKey(key, config.PARTITION_FACTOR);
 
     try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
 
@@ -206,7 +196,7 @@ public class ClusterClient {
       int successCount = 0;
       for (Future<?> future : futures) {
         try {
-          future.get(TIMEOUT_LIMIT_SECS_DELETE, TimeUnit.SECONDS);
+          future.get(config.TIMEOUT_LIMIT_SECS_DELETE, TimeUnit.SECONDS);
           successCount++;
         } catch (InterruptedException ex) {
           Thread.currentThread().interrupt();
@@ -216,11 +206,11 @@ public class ClusterClient {
         }
       }
 
-      if (successCount < WRITE_CONSENSUS_NUMBER) {
+      if (successCount < config.WRITE_CONSENSUS_NUMBER) {
         logger.warn("DELETE for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key,
-            successCount, WRITE_CONSENSUS_NUMBER);
+            successCount, config.WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes deleted the value, but "
-            + WRITE_CONSENSUS_NUMBER + " were expected to deleted that value");
+            + config.WRITE_CONSENSUS_NUMBER + " were expected to deleted that value");
       }
 
     }
