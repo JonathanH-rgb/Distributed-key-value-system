@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import com.kvstore.client.GossipClient;
 import com.kvstore.common.Node;
 import com.kvstore.common.NodeInformation;
+import com.kvstore.server.ClusterConfig;
 import com.kvstore.server.KVServer;
 
 import io.grpc.ManagedChannel;
@@ -32,9 +33,16 @@ public class GossipClientKVServerIntegrationTest {
 
     String serverName = "test-server";
 
+    Node serverNode = new Node("localhost", 0);
+    KVServer kvServer = new KVServer.Builder()
+        .host("localhost").port(0)
+        .hardcodedNodes(new Node[]{serverNode})
+        .gossipClientFactory((h, p) -> null)
+        .config(new ClusterConfig(3, 5, 0, 1, 3))
+        .build();
     server = InProcessServerBuilder
         .forName(serverName)
-        .addService(new KVServer())
+        .addService(kvServer)
         .build()
         .start();
 

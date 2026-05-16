@@ -63,11 +63,50 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   public final static int THREADS_RUNNING_GOSSIP_LOOP = 1;
 
   private final Node serverNode;
-  public final int FANOUT_FACTOR;
-  public final int GOSSIP_TIMEOUT_SECS;
-  public final int GOSSIP_LOOP_DELAY_SECS;
-  public final int GOSSIP_OTHER_SERVERS_FREQ_SECS;
-  public final int MAX_GOSSIP_ATTEMPS;
+  public final ClusterConfig config;
+
+  public static class Builder {
+    private String host;
+    private int port;
+    private Node[] hardcodedNodes;
+    private GossipClientFactory gossipClientFactory;
+    private ClusterConfig config;
+    private StorageEngine storageEngine = new InMemoryStore();
+
+    public Builder host(String host) {
+      this.host = host;
+      return this;
+    }
+
+    public Builder port(int port) {
+      this.port = port;
+      return this;
+    }
+
+    public Builder hardcodedNodes(Node[] nodes) {
+      this.hardcodedNodes = nodes;
+      return this;
+    }
+
+    public Builder gossipClientFactory(GossipClientFactory factory) {
+      this.gossipClientFactory = factory;
+      return this;
+    }
+
+    public Builder config(ClusterConfig config) {
+      this.config = config;
+      return this;
+    }
+
+    public Builder storageEngine(StorageEngine engine) {
+      this.storageEngine = engine;
+      return this;
+    }
+
+    public KVServer build() throws EmptyHardcodedNodesListException {
+      return new KVServer(host, port, hardcodedNodes, gossipClientFactory, config, storageEngine);
+    }
+  }
 
   public KVServer(String serverHost, int serverPort, Node[] hardcodeNodes, GossipClientFactory gossipClientFactory,
       ClusterConfig config, StorageEngine storageEngine) throws EmptyHardcodedNodesListException {
@@ -83,25 +122,8 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     this.serverNode = new Node(serverHost, serverPort);
     this.storageEngine = storageEngine;
     this.gossipClientFactory = gossipClientFactory;
-    this.FANOUT_FACTOR = config.FANOUT_FACTOR;
-    this.GOSSIP_TIMEOUT_SECS = config.GOSSIP_TIMEOUT_SECS;
-    this.GOSSIP_LOOP_DELAY_SECS = config.GOSSIP_LOOP_DELAY_SECS;
-    this.GOSSIP_OTHER_SERVERS_FREQ_SECS = config.GOSSIP_OTHER_SERVERS_FREQ_SECS;
-    this.MAX_GOSSIP_ATTEMPS = config.MAX_GOSSIP_ATTEMPS;
+    this.config = config;
     populateHardcodedNodes(hardcodeNodes);
-  }
-
-  public KVServer() {
-    nodeToNodeInformationMap = new ConcurrentHashMap<>();
-    nodeToFailedGossipAttemps = new ConcurrentHashMap<>();
-    nodeToGossipClientMap = new ConcurrentHashMap<>();
-    serverNode = null;
-    this.storageEngine = new InMemoryStore();
-    this.FANOUT_FACTOR = 3;
-    this.GOSSIP_TIMEOUT_SECS = 5;
-    this.GOSSIP_LOOP_DELAY_SECS = 0;
-    this.GOSSIP_OTHER_SERVERS_FREQ_SECS = 1;
-    this.MAX_GOSSIP_ATTEMPS = 3;
   }
 
   public void start() {
@@ -127,8 +149,8 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       return;
     }
     ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(THREADS_RUNNING_GOSSIP_LOOP);
-    scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, GOSSIP_LOOP_DELAY_SECS,
-        GOSSIP_OTHER_SERVERS_FREQ_SECS,
+    scheduler.scheduleAtFixedRate(this::gossipOtherRandomServers, config.GOSSIP_LOOP_DELAY_SECS,
+        config.GOSSIP_OTHER_SERVERS_FREQ_SECS,
         TimeUnit.SECONDS);
   }
 
@@ -292,8 +314,9 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   }
 
   private void gossipOtherRandomServers() {
-    long newHeartBeat = nodeToNodeInformationMap.get(serverNode).getHeartBeatCounter() + 1;
-    nodeToNodeInformationMap.get(serverNode).setHeartBeatCounter(newHeartBeat);
+    NodeInformation current = nodeToNodeInformationMap.get(serverNode);
+    long newHeartBeat = current.getHeartBeatCounter() + 1;
+    nodeToNodeInformationMap.put(serverNode, current.withHeartBeatCounter(newHeartBeat));
     logger.debug("Incremented heartbeat counter for {} to {}", serverNode, newHeartBeat);
     List<Node> targets = selectGossipTargets();
     targets.forEach(n -> {
@@ -312,7 +335,7 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
         .stream().filter(n -> nodeToNodeInformationMap.get(n).getStatus() != NodeInformation.Status.DEAD)
         .collect(Collectors.toList());
     Collections.shuffle(aliveNodes);
-    List<Node> targets = aliveNodes.subList(0, Math.min(FANOUT_FACTOR, aliveNodes.size()));
+    List<Node> targets = aliveNodes.subList(0, Math.min(config.FANOUT_FACTOR, aliveNodes.size()));
     logger.debug("Starting gossip round; selected {} target nodes", targets.size());
     return targets;
   }
@@ -336,8 +359,8 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
       for (Future<HashMap<Node, NodeInformation>> future : futures) {
         Node node = futureToNode.get(future);
         try {
-          responses.add(future.get(GOSSIP_TIMEOUT_SECS, TimeUnit.SECONDS));
-          nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.ALIVE);
+          responses.add(future.get(config.GOSSIP_TIMEOUT_SECS, TimeUnit.SECONDS));
+          nodeToNodeInformationMap.computeIfPresent(node, (k, v) -> v.withStatus(NodeInformation.Status.ALIVE));
           nodeToFailedGossipAttemps.put(node, 0);
         } catch (InterruptedException ex) {
           Thread.currentThread().interrupt();
@@ -353,12 +376,12 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
   private void handleGossipFailure(Node node) {
     int failedAttempts = nodeToFailedGossipAttemps.getOrDefault(node, 0) + 1;
     nodeToFailedGossipAttemps.put(node, failedAttempts);
-    logger.warn("Gossip to node {} failed (attempt {}/{})", node, failedAttempts, MAX_GOSSIP_ATTEMPS);
-    if (failedAttempts >= MAX_GOSSIP_ATTEMPS) {
-      nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.DEAD);
+    logger.warn("Gossip to node {} failed (attempt {}/{})", node, failedAttempts, config.MAX_GOSSIP_ATTEMPS);
+    if (failedAttempts >= config.MAX_GOSSIP_ATTEMPS) {
+      nodeToNodeInformationMap.computeIfPresent(node, (k, v) -> v.withStatus(NodeInformation.Status.DEAD));
       logger.warn("Node {} marked as DEAD after {} failed gossip attempts", node, failedAttempts);
     } else {
-      nodeToNodeInformationMap.get(node).setStatus(NodeInformation.Status.SUSPECT);
+      nodeToNodeInformationMap.computeIfPresent(node, (k, v) -> v.withStatus(NodeInformation.Status.SUSPECT));
     }
   }
 

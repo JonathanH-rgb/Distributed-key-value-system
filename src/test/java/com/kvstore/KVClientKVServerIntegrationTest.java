@@ -13,6 +13,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.kvstore.client.KVClient;
+import com.kvstore.common.Node;
+import com.kvstore.server.ClusterConfig;
 import com.kvstore.server.KVServer;
 
 import io.grpc.ManagedChannel;
@@ -30,12 +32,20 @@ public class KVClientKVServerIntegrationTest {
 
   @BeforeEach
   public void setup() throws Exception {
+    // EmptyHardcodedNodesListException cannot happen here since we always pass one node
 
     String serverName = "test-server";
 
+    Node serverNode = new Node("localhost", 0);
+    KVServer kvServer = new KVServer.Builder()
+        .host("localhost").port(0)
+        .hardcodedNodes(new Node[]{serverNode})
+        .gossipClientFactory((h, p) -> null)
+        .config(new ClusterConfig(3, 5, 0, 1, 3))
+        .build();
     server = InProcessServerBuilder
         .forName(serverName)
-        .addService(new KVServer())
+        .addService(kvServer)
         .build()
         .start();
 
