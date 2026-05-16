@@ -78,14 +78,26 @@ Nodes communicate using [gRPC](https://grpc.io/) over HTTP/2 with [Protocol Buff
 
 ## Configuration
 
-Create `src/main/resources/cluster.properties`:
+Create `src/main/resources/config.properties` (see `config.properties.example` for all options with descriptions):
 
 ```properties
-FANOUT_FACTOR=3
-GOSSIP_TIMEOUT_SECS=5
-GOSSIP_LOOP_DELAY_SECS=0
-GOSSIP_OTHER_SERVERS_FREQ_SECS=1
-MAX_GOSSIP_ATTEMPS=3
+# Gossip / cluster membership
+cluster.fanout.factor=3
+cluster.gossip.timeout.secs=5
+cluster.gossip.loop.delay.secs=0
+cluster.gossip.freq.secs=1
+cluster.gossip.max.attempts=3
+
+# Client routing and consensus
+client.partition.factor=3
+client.read.consensus=2
+client.write.consensus=2
+client.timeout.get.secs=5
+client.timeout.put.secs=5
+client.timeout.delete.secs=5
+client.refresh.rate.secs=3
+client.refresh.delay.secs=0
+client.refresh.threads=1
 ```
 
 ## Running
