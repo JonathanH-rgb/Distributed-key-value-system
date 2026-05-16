@@ -11,7 +11,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -39,6 +38,7 @@ public class ClusterClient {
   private final HashRingInterface hashRing;
   private ConcurrentHashMap<Node, KVClient> clientPool;
   private Map<Node, KVClient> hardcodedNodesToClientMap;
+  private final ExecutorService repairExecutor = Executors.newVirtualThreadPerTaskExecutor();
   // TODO: for now hardcoded, maybe change in the future
   public final int PARTITION_FACTOR = 3;
   public final int READ_CONSENSUS_NUMBER = 2;
@@ -80,40 +80,16 @@ public class ClusterClient {
   }
 
   public Optional<VersionedValue> getValue(final String key) {
-
     logger.debug("GET request for key '{}'", key);
 
     final HashSet<Node> nodes;
-    List<Optional<VersionedValue>> results = new ArrayList<>();
-
     try {
-      nodes = hashRing.determineNodesForKey(key,
-          PARTITION_FACTOR);
+      nodes = hashRing.determineNodesForKey(key, PARTITION_FACTOR);
     } catch (final NotEnoughNodesException ex) {
       return Optional.empty();
     }
 
-    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      List<Future<Optional<VersionedValue>>> futures = nodes.stream()
-          .map(node -> executor.submit(() -> clientPool.get(node).get(key)))
-          .collect(Collectors.toList());
-
-      for (Future<Optional<VersionedValue>> future : futures) {
-        try {
-
-          results.add(future.get(TIMEOUT_LIMIT_SECS_GET, TimeUnit.SECONDS));
-
-        } catch (InterruptedException ex) {
-
-          Thread.currentThread().interrupt();
-          break;
-
-        } catch (TimeoutException | ExecutionException ex) {
-          logger.error("GET request for key '{}' failed on one node", key, ex);
-        }
-      }
-
-    }
+    Map<Node, Optional<VersionedValue>> results = queryNodes(key, nodes);
 
     if (results.size() < READ_CONSENSUS_NUMBER) {
       logger.warn("GET for key '{}' did not meet read consensus: got {} responses, needed {}", key, results.size(),
@@ -121,29 +97,61 @@ public class ClusterClient {
       return Optional.empty();
     }
 
-    int mostRecentIndex = -1;
-
-    for (int i = 0; i < results.size(); i++) {
-
-      Optional<VersionedValue> value = results.get(i);
-
-      if (value.isEmpty()) {
-        continue;
-      }
-
-      if (mostRecentIndex == -1) {
-        mostRecentIndex = i;
-      } else if (results.get(mostRecentIndex).get().getVersion() < value.get().getVersion()) {
-        mostRecentIndex = i;
-      }
-    }
-
-    if (mostRecentIndex == -1) {
+    Optional<Node> optionalNodeWithHighestVersion = pickNodeWithHighestVersion(results);
+    if (optionalNodeWithHighestVersion.isEmpty()) {
       return Optional.empty();
     }
 
-    return Optional.of(results.get(mostRecentIndex).get());
+    Node nodeWithHigestVersion = optionalNodeWithHighestVersion.get();
+    VersionedValue value = results.get(nodeWithHigestVersion).get();
 
+    // Take nodes with diff value that latest and update
+    List<Node> nodesWithDifferentValueThanLatest = results.keySet().stream()
+        .filter(node -> !value.equals(results.get(node).orElse(null)))
+        .toList();
+
+    updateOldNodesWithNewValAsync(value, nodesWithDifferentValueThanLatest, key);
+    return Optional.of(value);
+  }
+
+  private Map<Node, Optional<VersionedValue>> queryNodes(String key, HashSet<Node> nodes) {
+    Map<Node, Optional<VersionedValue>> results = new HashMap<>();
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      Map<Future<Optional<VersionedValue>>, Node> futureToNode = new HashMap<>();
+      nodes.forEach(node -> futureToNode.put(
+          executor.submit(() -> clientPool.get(node).get(key)), node));
+
+      for (Map.Entry<Future<Optional<VersionedValue>>, Node> entry : futureToNode.entrySet()) {
+        try {
+          results.put(entry.getValue(), entry.getKey().get(TIMEOUT_LIMIT_SECS_GET, TimeUnit.SECONDS));
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          break;
+        } catch (TimeoutException | ExecutionException ex) {
+          logger.error("GET request for key '{}' failed on node {}", key, entry.getValue(), ex);
+        }
+      }
+    }
+    return results;
+  }
+
+  private Optional<Node> pickNodeWithHighestVersion(Map<Node, Optional<VersionedValue>> results) {
+    return results.keySet().stream()
+        .filter(key -> results.get(key).isPresent())
+        .max((keyA, keyB) -> Long.compare(results.get(keyA).get().getVersion(),
+            results.get(keyB).get().getVersion()));
+  }
+
+  private void updateOldNodesWithNewValAsync(VersionedValue latestVal, List<Node> nodesToBeUpdated,
+      String key) {
+    nodesToBeUpdated.forEach(node -> repairExecutor
+        .submit(() -> {
+          try {
+            clientPool.get(node).put(key, latestVal.getBytes(), latestVal.getVersion());
+          } catch (Exception ex) {
+            logger.warn("Read repair failed for key={} node={}", key, node, ex);
+          }
+        }));
   }
 
   public void putValue(final String key, final byte[] value, long version)
@@ -177,11 +185,9 @@ public class ClusterClient {
         logger.warn("PUT for key '{}' did not meet write consensus: {} nodes succeeded, needed {}", key, successCount,
             WRITE_CONSENSUS_NUMBER);
         throw new WriteConsensusException("Only " + successCount + " nodes updated the value, but "
-            + WRITE_CONSENSUS_NUMBER + " were expected to updated that value");
+            + WRITE_CONSENSUS_NUMBER + " were expected to update that value");
       }
-
     }
-
   }
 
   public void deleteValue(final String key) throws NotEnoughNodesException, WriteConsensusException {
@@ -273,6 +279,11 @@ public class ClusterClient {
         }
       }
     }
+  }
+
+  public void shutdown() {
+    repairExecutor.shutdown();
+    clientPool.values().forEach(client -> client.shutdown());
   }
 
 }

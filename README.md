@@ -17,7 +17,8 @@ Client Application
 Node1 Node2 Node3 ...   ← KVServer instances (gRPC servers)
   │    │    │
   ▼    ▼    ▼
-InMemoryStore           ← ConcurrentHashMap-backed storage per node
+StorageEngine           ← InMemoryStore (tests) or DurableStorageEngine (production)
+                           DurableStorageEngine writes to WAL before memory, snapshots hourly
 
 Servers also gossip with each other:
 Node1 ←──gossip──► Node2 ←──gossip──► Node3
@@ -27,7 +28,10 @@ Node1 ←──gossip──► Node2 ←──gossip──► Node3
 
 **Storage Layer** (`com.kvstore.storage`)
 - `StorageEngine` — interface defining `get`, `put`, `delete`
-- `InMemoryStore` — thread-safe implementation backed by `ConcurrentHashMap` with versioned values
+- `InMemoryStore` — thread-safe implementation backed by `ConcurrentHashMap`, used in tests
+- `DurableStorageEngine` — production implementation: writes to WAL before updating memory, recovers state on startup by replaying snapshot + WAL, snapshots to disk hourly
+- `WriteAheadLog` / `WriteAheadLogInterface` — append-only log file. Every `put` and `delete` is written here first (synchronized). On recovery, replays only entries newer than the latest snapshot
+- `SnapShotManager` / `SnapShotManagerInterface` — periodically serializes the full in-memory map to disk using an atomic tmp→rename write to avoid corrupt state on crash
 
 **Server Layer** (`com.kvstore.server`)
 - `KVServer` — gRPC service implementation. Handles `Get`, `Put`, `Delete`, `Gossip`, and `ViewCluster` RPCs
@@ -100,9 +104,9 @@ mvn test
 | 1 | Single-node KV store with gRPC | Done |
 | 2 | Consistent hashing, partitioning, quorum reads/writes | Done |
 | 3 | Gossip-based failure detection (SUSPECT/DEAD, incarnation numbers, auto-discovery) | Done |
-| 4 | Persistence — WAL + snapshots | Planned |
+| 4 | Persistence — WAL + snapshots | Done |
 | 5 | Raft consensus — leader election + replicated log | Planned |
-| 6 | Read repair | Planned |
+| 6 | Read repair | Done |
 | 7 | Data migration on topology changes | Planned |
 | 8 | TLS + authentication | Planned |
 | 9 | Benchmarking & tuning | Planned |

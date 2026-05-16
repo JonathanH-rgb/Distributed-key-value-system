@@ -248,14 +248,6 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
     }
   }
 
-  private void checkIfNewIncarnationNumberIsHigherAndResetFailures(Node node, NodeInformation incoming) {
-    NodeInformation current = nodeToNodeInformationMap.get(node);
-    if (incoming.getIncarnationNumber() > current.getIncarnationNumber()) {
-      nodeToFailedGossipAttemps.put(node, 0);
-      nodeToGossipClientMap.remove(node);
-    }
-  }
-
   private boolean isNodeInfoNewerThanCurrent(Node node, NodeInformation incoming) {
     NodeInformation current = nodeToNodeInformationMap.get(node);
     if (incoming.getIncarnationNumber() > current.getIncarnationNumber()) {
@@ -378,7 +370,10 @@ public class KVServer extends KVStoreGrpc.KVStoreImplBase {
           nodeToNodeInformationMap.put(node, incoming);
           logger.info("Discovered new node {} via gossip; added to cluster view", node);
         } else {
-          checkIfNewIncarnationNumberIsHigherAndResetFailures(node, incoming);
+          NodeInformation current = nodeToNodeInformationMap.get(node);
+          if (incoming.getIncarnationNumber() > current.getIncarnationNumber()) {
+            nodeToFailedGossipAttemps.put(node, 0);
+          }
           if (isNodeInfoNewerThanCurrent(node, incoming)) {
             nodeToNodeInformationMap.put(node, incoming);
           }
