@@ -11,8 +11,7 @@ import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.SnapshotCouldNotReadException;
 import com.kvstore.common.exceptions.SnapshotCouldNotWriteException;
 import com.kvstore.common.exceptions.StorageException;
-import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotTruncateException;
+import com.kvstore.common.exceptions.WALException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +46,7 @@ public class DurableStorageEngine implements StorageEngine {
       for (String key : walRemaining.keySet()) {
         memoryStorage.put(key, walRemaining.get(key));
       }
-    } catch (SnapshotCouldNotReadException | WALCouldNotReadLogFileException ex) {
+    } catch (SnapshotCouldNotReadException | WALException ex) {
       throw new StorageException("Failed to recover storage engine", ex);
     }
   }
@@ -60,7 +59,7 @@ public class DurableStorageEngine implements StorageEngine {
       try {
         snapShotManager.snapshot(memoryStorage);
         writeAheadLog.truncate();
-      } catch (SnapshotCouldNotWriteException | WALCouldNotTruncateException ex) {
+      } catch (SnapshotCouldNotWriteException | WALException ex) {
         logger.error("Snapshot failed ", ex);
       }
     }, SNAPSHOT_LOOP_DELAY_SECS,

@@ -13,10 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.kvstore.common.VersionedValue;
-import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotTruncateException;
-import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
+import com.kvstore.common.exceptions.WALException;
 import com.kvstore.storage.WriteAheadLog;
 
 public class WriteAheadLogTest {
@@ -25,7 +22,7 @@ public class WriteAheadLogTest {
   private WriteAheadLog wal;
 
   @BeforeEach
-  public void setup() throws IOException, WALCouldNotOpenLogFileException {
+  public void setup() throws IOException, WALException {
     tempDir = Files.createTempDirectory("wal-test");
     wal = new WriteAheadLog(tempDir.toString());
   }
@@ -40,7 +37,7 @@ public class WriteAheadLogTest {
 
   @Test
   public void recoverShouldApplyDeletesOnTopOfPuts()
-      throws WALCouldNotWriteToLogFileException, WALCouldNotReadLogFileException {
+      throws WALException {
     long after = 0L;
     String key1 = "key1";
     byte[] value1 = "value1".getBytes();
@@ -60,7 +57,7 @@ public class WriteAheadLogTest {
 
   @Test
   public void recoverWithSinceShouldSkipOlderEntries()
-      throws WALCouldNotWriteToLogFileException, WALCouldNotReadLogFileException, InterruptedException {
+      throws WALException, InterruptedException {
     String key3 = "key3";
     byte[] value3 = "value3".getBytes();
     long version3 = 3L;
@@ -89,7 +86,7 @@ public class WriteAheadLogTest {
 
   @Test
   public void truncateShouldClearAllEntriesFromLog()
-      throws WALCouldNotWriteToLogFileException, WALCouldNotTruncateException, WALCouldNotReadLogFileException {
+      throws WALException {
     wal.writePut("key1", "value1".getBytes(), 1L);
     wal.writePut("key2", "value2".getBytes(), 2L);
     wal.truncate();
@@ -99,7 +96,7 @@ public class WriteAheadLogTest {
 
   @Test
   public void truncateShouldAllowWritesAfterTruncation()
-      throws WALCouldNotWriteToLogFileException, WALCouldNotTruncateException, WALCouldNotReadLogFileException {
+      throws WALException {
     wal.writePut("key1", "value1".getBytes(), 1L);
     wal.truncate();
     wal.writePut("key2", "value2".getBytes(), 2L);
@@ -111,7 +108,7 @@ public class WriteAheadLogTest {
 
   @Test
   public void recoverWithSinceZeroShouldReturnAllEntries()
-      throws WALCouldNotWriteToLogFileException, WALCouldNotReadLogFileException {
+      throws WALException {
     long after = 0L;
     String key3 = "key3";
     byte[] value3 = "value3".getBytes();

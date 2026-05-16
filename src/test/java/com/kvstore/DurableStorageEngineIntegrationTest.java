@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import com.kvstore.common.VersionedValue;
 import com.kvstore.common.exceptions.StorageException;
-import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
+import com.kvstore.common.exceptions.WALException;
 import com.kvstore.storage.DurableStorageEngine;
 import com.kvstore.storage.SnapShotManager;
 import com.kvstore.storage.WriteAheadLog;
@@ -25,7 +25,7 @@ public class DurableStorageEngineIntegrationTest {
   private DurableStorageEngine engine;
 
   @BeforeEach
-  public void setup() throws IOException, WALCouldNotOpenLogFileException {
+  public void setup() throws IOException, WALException {
     tempDir = Files.createTempDirectory("durable-engine-test");
     engine = new DurableStorageEngine(
         new WriteAheadLog(tempDir.toString()),
@@ -41,7 +41,7 @@ public class DurableStorageEngineIntegrationTest {
 
   @Test
   public void keysShouldSurviveRestart()
-      throws StorageException, WALCouldNotOpenLogFileException, IOException, InterruptedException {
+      throws StorageException, WALException, IOException, InterruptedException {
     String key1 = "key1";
     byte[] value1 = "value1".getBytes();
     long version1 = 1L;
@@ -69,7 +69,7 @@ public class DurableStorageEngineIntegrationTest {
 
   @Test
   public void deleteShouldSurviveRestart()
-      throws StorageException, WALCouldNotOpenLogFileException, InterruptedException {
+      throws StorageException, WALException, InterruptedException {
     String key = "key";
     byte[] value = "value".getBytes();
     long version = 1L;

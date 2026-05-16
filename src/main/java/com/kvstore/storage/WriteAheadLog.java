@@ -15,11 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.kvstore.common.VersionedValue;
-import com.kvstore.common.exceptions.WALCouldNotCloseLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotOpenLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotTruncateException;
-import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
+import com.kvstore.common.exceptions.WALException;
 
 /**
  * Append-only log that records every write operation to disk before it is
@@ -30,7 +26,7 @@ public class WriteAheadLog implements WriteAheadLogInterface {
 
   private static final Logger logger = LoggerFactory.getLogger(WriteAheadLog.class);
 
-  public static enum Operation {
+  public enum Operation {
     PUT,
     DELETE
   }
@@ -40,7 +36,7 @@ public class WriteAheadLog implements WriteAheadLogInterface {
   private final String fileDir;
   public final static String FILE_NAME = "wal.log";
 
-  public WriteAheadLog(String fileDir) throws WALCouldNotOpenLogFileException {
+  public WriteAheadLog(String fileDir) throws WALException {
     if (fileDir.charAt(fileDir.length() - 1) == '/') {
       this.fileDir = fileDir;
     } else {
@@ -50,47 +46,47 @@ public class WriteAheadLog implements WriteAheadLogInterface {
     openWriter();
   }
 
-  private void openWriter() throws WALCouldNotOpenLogFileException {
+  private void openWriter() throws WALException {
     try {
       writer = Files.newBufferedWriter(logPath, StandardOpenOption.CREATE,
           StandardOpenOption.APPEND);
       logger.info("WAL opened at {}", logPath);
     } catch (IOException ex) {
-      throw new WALCouldNotOpenLogFileException("Failed to open WAL file at " + logPath, ex);
+      throw new WALException("Failed to open WAL file at " + logPath, ex);
     }
   }
 
-  public void truncate() throws WALCouldNotTruncateException {
+  public void truncate() throws WALException {
     try {
       shutdown();
-    } catch (WALCouldNotCloseLogFileException ex) {
-      throw new WALCouldNotTruncateException("Failed to truncate WAL: could not close writer at " + logPath, ex);
+    } catch (WALException ex) {
+      throw new WALException("Failed to truncate WAL: could not close writer at " + logPath, ex);
     }
     try {
       Files.delete(logPath);
       logger.info("WAL truncated at {}", logPath);
     } catch (IOException ex) {
-      throw new WALCouldNotTruncateException("Failed to truncate WAL: could not delete file at " + logPath, ex);
+      throw new WALException("Failed to truncate WAL: could not delete file at " + logPath, ex);
     }
     try {
       openWriter();
-    } catch (WALCouldNotOpenLogFileException ex) {
-      throw new WALCouldNotTruncateException("Failed to truncate WAL: could not reopen writer at " + logPath, ex);
+    } catch (WALException ex) {
+      throw new WALException("Failed to truncate WAL: could not reopen writer at " + logPath, ex);
     }
   }
 
-  public void shutdown() throws WALCouldNotCloseLogFileException {
+  public void shutdown() throws WALException {
     try {
       writer.close();
       logger.info("WAL closed at {}", logPath);
     } catch (IOException ex) {
-      throw new WALCouldNotCloseLogFileException("Failed to close WAL file at " + logPath, ex);
+      throw new WALException("Failed to close WAL file at " + logPath, ex);
     }
   }
 
   // synchronized makes this only accesible from one thread at the time
   public synchronized void writePut(String key, byte[] value, long version)
-      throws WALCouldNotWriteToLogFileException {
+      throws WALException {
     long time = Instant.now().toEpochMilli();
     String valueString = Base64.getEncoder().encodeToString(value);
     String message = time + "|" + Operation.PUT + "|" + key + "|" + valueString + "|" + version;
@@ -100,14 +96,14 @@ public class WriteAheadLog implements WriteAheadLogInterface {
       writer.flush();
       logger.debug("WAL wrote operation={} key={} version={}", Operation.PUT, key, version);
     } catch (IOException ex) {
-      throw new WALCouldNotWriteToLogFileException(
+      throw new WALException(
           "Failed to write to WAL file at " + logPath + " for operation=" + Operation.PUT + " key=" + key, ex);
     }
   }
 
   // synchronized makes this only accesible from one thread at the time
   public synchronized void writeDelete(String key)
-      throws WALCouldNotWriteToLogFileException {
+      throws WALException {
     long time = Instant.now().toEpochMilli();
     String message = time + "|" + Operation.DELETE + "|" + key;
     try {
@@ -116,12 +112,12 @@ public class WriteAheadLog implements WriteAheadLogInterface {
       writer.flush();
       logger.debug("WAL wrote operation={} key={}", Operation.DELETE, key);
     } catch (IOException ex) {
-      throw new WALCouldNotWriteToLogFileException(
+      throw new WALException(
           "Failed to write to WAL file at " + logPath + " for operation=" + Operation.DELETE + " key=" + key, ex);
     }
   }
 
-  public Map<String, VersionedValue> recover(long since) throws WALCouldNotReadLogFileException {
+  public Map<String, VersionedValue> recover(long since) throws WALException {
     Map<String, VersionedValue> memoryStorage = new ConcurrentHashMap<>();
     try (Stream<String> lines = Files.lines(logPath)) {
       lines.forEach(line -> {
@@ -143,7 +139,7 @@ public class WriteAheadLog implements WriteAheadLogInterface {
         }
       });
     } catch (IOException ex) {
-      throw new WALCouldNotReadLogFileException("Failed to read WAL file at " + logPath, ex);
+      throw new WALException("Failed to read WAL file at " + logPath, ex);
     }
     logger.info("WAL recovery complete; recovered {} keys from {}", memoryStorage.size(), logPath);
     return memoryStorage;

@@ -3,24 +3,21 @@ package com.kvstore.storage;
 import java.util.Map;
 
 import com.kvstore.common.VersionedValue;
-import com.kvstore.common.exceptions.WALCouldNotCloseLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotReadLogFileException;
-import com.kvstore.common.exceptions.WALCouldNotTruncateException;
-import com.kvstore.common.exceptions.WALCouldNotWriteToLogFileException;
+import com.kvstore.common.exceptions.WALException;
 
 /**
  * Contract for a write-ahead log.
  */
 public interface WriteAheadLogInterface {
 
-  void writePut(String key, byte[] value, long version) throws WALCouldNotWriteToLogFileException;
+  void writePut(String key, byte[] value, long version) throws WALException;
 
-  void writeDelete(String key) throws WALCouldNotWriteToLogFileException;
+  void writeDelete(String key) throws WALException;
 
-  Map<String, VersionedValue> recover(long since) throws WALCouldNotReadLogFileException;
+  Map<String, VersionedValue> recover(long since) throws WALException;
 
-  void shutdown() throws WALCouldNotCloseLogFileException;
+  void shutdown() throws WALException;
 
-  void truncate() throws WALCouldNotTruncateException;
+  void truncate() throws WALException;
 
 }
