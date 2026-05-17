@@ -121,21 +121,25 @@ public class WriteAheadLog implements WriteAheadLogInterface {
     Map<String, VersionedValue> memoryStorage = new ConcurrentHashMap<>();
     try (Stream<String> lines = Files.lines(logPath)) {
       lines.forEach(line -> {
-        String[] parts = line.split("\\|");
-        long time = Long.parseLong(parts[0]);
-        if (time <= since) {
-          return;
-        }
-        Operation operation = Operation.DELETE.toString().equals(parts[1]) ? Operation.DELETE : Operation.PUT;
-        String key = parts[2];
-        if (operation.equals(Operation.DELETE)) {
-          memoryStorage.remove(key);
-          logger.debug("WAL recovery: DELETE key={}", key);
-        } else {
-          byte[] value = Base64.getDecoder().decode(parts[3]);
-          long version = Long.parseLong(parts[4]);
-          memoryStorage.put(key, new VersionedValue(value, version));
-          logger.debug("WAL recovery: PUT key={} version={}", key, version);
+        try {
+          String[] parts = line.split("\\|");
+          long time = Long.parseLong(parts[0]);
+          if (time <= since) {
+            return;
+          }
+          Operation operation = Operation.DELETE.toString().equals(parts[1]) ? Operation.DELETE : Operation.PUT;
+          String key = parts[2];
+          if (operation.equals(Operation.DELETE)) {
+            memoryStorage.remove(key);
+            logger.debug("WAL recovery: DELETE key={}", key);
+          } else {
+            byte[] value = Base64.getDecoder().decode(parts[3]);
+            long version = Long.parseLong(parts[4]);
+            memoryStorage.put(key, new VersionedValue(value, version));
+            logger.debug("WAL recovery: PUT key={} version={}", key, version);
+          }
+        } catch (Exception ex) {
+          logger.warn("Skipping malformed wal entry {}", line, ex);
         }
       });
     } catch (IOException ex) {
